@@ -1,0 +1,268 @@
+--[[
+    FIXED SPACESHIP COMBAT SCRIPT
+    Place this inside a LocalScript inside your Spaceship Model
+--]]
+
+local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
+local spaceship = script.Parent
+local root = spaceship.PrimaryPart -- The main part of your ship
+
+-- Wait for the PrimaryPart if it's not loaded yet
+if not root then
+	warn("Spaceship has no PrimaryPart! Please set one in the Properties.")
+	return
+end
+
+-- Services
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+
+-- CONFIG
+local speed = 200
+local laserDamage = 10
+local rocketSpeed = 150
+
+-- MOVEMENT SETUP
+local bodyVelocity = Instance.new("BodyVelocity")
+bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+bodyVelocity.Parent = root
+
+local moveDirection = Vector3.new(0, 0, 0)
+
+-- INPUT HANDLING
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.W then moveDirection += Vector3.new(0, 0, -1)
+	elseif input.KeyCode == Enum.KeyCode.S then moveDirection += Vector3.new(0, 0, 1)
+	elseif input.KeyCode == Enum.KeyCode.A then moveDirection += Vector3.new(-1, 0, 0)
+	elseif input.KeyCode == Enum.KeyCode.D then moveDirection += Vector3.new(1, 0, 0)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.W then moveDirection -= Vector3.new(0, 0, -1)
+	elseif input.KeyCode == Enum.KeyCode.S then moveDirection -= Vector3.new(0, 0, 1)
+	elseif input.KeyCode == Enum.KeyCode.A then moveDirection -= Vector3.new(-1, 0, 0)
+	elseif input.KeyCode == Enum.KeyCode.D then moveDirection -= Vector3.new(1, 0, 0)
+	end
+end)
+
+-- UPDATE LOOP (Movement and Rotation)
+RunService.RenderStepped:Connect(function()
+	-- Prevent the NaN crash by checking magnitude
+	if moveDirection.Magnitude > 0 then
+		bodyVelocity.Velocity = root.CFrame:VectorToWorldSpace(moveDirection.Unit * speed)
+	else
+		bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	end
+
+	-- Makes the ship look toward the mouse cursor
+	root.CFrame = CFrame.lookAt(root.Position, mouse.Hit.Position)
+end)
+
+-- SHOOTING LASERS (Left Click)
+mouse.Button1Down:Connect(function()
+	local laser = Instance.new("Part")
+	laser.Size = Vector3.new(0.5, 0.5, 4)
+	laser.CFrame = root.CFrame * CFrame.new(0, 0, -10) -- Spawn in front
+	laser.BrickColor = BrickColor.new("Bright red")
+	laser.CanCollide = false
+	laser.Velocity = root.CFrame.LookVector * 500
+	laser.Parent = workspace
+
+	Debris:AddItem(laser, 3)
+
+	laser.Touched:Connect(function(hit)
+		local humanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid:TakeDamage(laserDamage)
+			laser:Destroy()
+		end
+	end)
+end)
+
+-- FIRING ROCKETS (R Key)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.R then
+		local rocket = Instance.new("Part")
+		rocket.Size = Vector3.new(1, 1, 3)
+		rocket.CFrame = root.CFrame * CFrame.new(0, 0, -10)
+		rocket.BrickColor = BrickColor.new("Really red")
+		rocket.CanCollide = false
+		rocket.Velocity = root.CFrame.LookVector * rocketSpeed
+		rocket.Parent = workspace
+
+		Debris:AddItem(rocket, 5)
+
+		rocket.Touched:Connect(function(hit)
+			if hit.Parent ~= spaceship then
+				local explosion = Instance.new("Explosion")
+				explosion.Position = rocket.Position
+				explosion.BlastRadius = 15
+				explosion.Parent = workspace
+				rocket:Destroy()
+			end
+		end)
+	end
+end)
+
+//Player Character Combat:
+local UIS = game:GetService("UserInputService")
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- CONFIG
+local currentStyle = "Brawler"
+local heat = 0
+local maxHeat = 100
+local combo = 1
+local canAttack = true
+
+local styles = {
+	["Brawler"] = {Damage = 10, Speed = 16, Color = Color3.fromRGB(0, 170, 255)},
+	["Rush"] = {Damage = 5, Speed = 25, Color = Color3.fromRGB(255, 220, 0)},
+	["Beast"] = {Damage = 25, Speed = 10, Color = Color3.fromRGB(255, 50, 50)}
+}
+
+--- GUI CREATION (The Yakuza HUD) ---
+local gui = Instance.new("ScreenGui", player.PlayerGui)
+gui.Name = "YakuzaHUD"
+
+-- Health Bar Background
+local healthBack = Instance.new("Frame", gui)
+healthBack.Size = UDim2.new(0, 300, 0, 25)
+healthBack.Position = UDim2.new(0, 50, 0, 50)
+healthBack.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+
+local healthBar = Instance.new("Frame", healthBack)
+healthBar.Size = UDim2.new(1, 0, 1, 0)
+healthBar.BackgroundColor3 = Color3.fromRGB(255, 180, 0) -- Classic Yellow/Orange
+
+-- Heat Bar Background
+local heatBack = Instance.new("Frame", gui)
+heatBack.Size = UDim2.new(0, 250, 0, 15)
+heatBack.Position = UDim2.new(0, 50, 0, 80)
+heatBack.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+
+local heatBar = Instance.new("Frame", heatBack)
+heatBar.Size = UDim2.new(0, 0, 1, 0) -- Starts at 0
+heatBar.BackgroundColor3 = Color3.fromRGB(0, 230, 255) -- Cyan Heat
+
+-- Style Text
+local styleLabel = Instance.new("TextLabel", gui)
+styleLabel.Size = UDim2.new(0, 200, 0, 30)
+styleLabel.Position = UDim2.new(0, 50, 0, 100)
+styleLabel.BackgroundTransparency = 1
+styleLabel.TextColor3 = Color3.new(1,1,1)
+styleLabel.Text = "STYLE: BRAWLER"
+styleLabel.TextXAlignment = Enum.TextXAlignment.Left
+styleLabel.Font = Enum.Font.LuckiestGuy
+
+--- FUNCTIONS ---
+
+local function updateUI()
+	healthBar.Size = UDim2.new(humanoid.Health / humanoid.MaxHealth, 0, 1, 0)
+	heatBar.Size = UDim2.new(heat / maxHeat, 0, 1, 0)
+	styleLabel.Text = "STYLE: " .. currentStyle:upper()
+	styleLabel.TextColor3 = styles[currentStyle].Color
+end
+
+local function addHeat(amount)
+	heat = math.clamp(heat + amount, 0, maxHeat)
+	updateUI()
+end
+
+-- HEAT ACTION FUNCTION
+local function performHeatAction()
+	if heat < 50 then return end -- Need at least 50 heat
+
+	-- Find nearest enemy
+	for _, target in pairs(workspace:GetChildren()) do
+		local targetHum = target:FindFirstChild("Humanoid")
+		local targetRoot = target:FindFirstChild("HumanoidRootPart")
+
+		if targetHum and target ~= character then
+			local dist = (root.Position - targetRoot.Position).Magnitude
+			if dist < 8 then -- If close enough
+				print("HEAT ACTION: ESSENCE OF SMASH!")
+				heat -= 50 -- Use heat
+				targetHum:TakeDamage(50) -- Big damage
+
+				-- Cinematic effect (Zoom camera)
+				local cam = workspace.CurrentCamera
+				cam.FieldOfView = 50
+				task.wait(0.5)
+				cam.FieldOfView = 70
+
+				updateUI()
+				return
+			end
+		end
+	end
+end
+
+-- COMBAT SYSTEM
+local function attack()
+	if not canAttack then return end
+	canAttack = false
+
+	-- Combo Damage
+	local dmg = styles[currentStyle].Damage
+	if combo == 3 then dmg = dmg * 2 end 
+
+	-- Hit Detection
+	local hitBox = Instance.new("Part", workspace)
+	hitBox.Size = Vector3.new(5, 5, 5)
+	hitBox.CFrame = root.CFrame * CFrame.new(0, 0, -3)
+	hitBox.Transparency = 1
+	hitBox.CanCollide = false
+	hitBox.Anchored = true
+
+	local hasHit = false
+	hitBox.Touched:Connect(function(hit)
+		if hasHit then return end
+		local targetHum = hit.Parent:FindFirstChild("Humanoid")
+		if targetHum and hit.Parent ~= character then
+			hasHit = true
+			targetHum:TakeDamage(dmg)
+			addHeat(5) -- Gain Heat on hit!
+			print("Hit for " .. dmg)
+		end
+	end)
+
+	task.wait(0.1)
+	hitBox:Destroy()
+
+	-- Combo Reset
+	combo = (combo % 3) + 1
+	task.wait(0.3)
+	canAttack = true
+end
+
+-- CONTROLS
+UIS.InputBegan:Connect(function(input, processed)
+	if processed then return end
+
+	if input.KeyCode == Enum.KeyCode.One then currentStyle = "Brawler" 
+	elseif input.KeyCode == Enum.KeyCode.Two then currentStyle = "Rush"
+	elseif input.KeyCode == Enum.KeyCode.Three then currentStyle = "Beast"
+	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+		attack()
+	elseif input.KeyCode == Enum.KeyCode.E then
+		performHeatAction() -- Press E for Heat Action
+	end
+	updateUI()
+end)
+
+humanoid.HealthChanged:Connect(updateUI)
+updateUI()
+
+
+
+
