@@ -1,0 +1,169 @@
+-- FUNCTION TO SPAWN THE DUMMY
+local function spawnPracticeDummy()
+	-- 1. Create a basic R15-style Dummy
+	local dummy = Instance.new("Model", workspace)
+	dummy.Name = "TrainingDummy"
+	
+	-- 2. Create the main body part (The Torso)
+	local torso = Instance.new("Part", dummy)
+	torso.Name = "HumanoidRootPart"
+	torso.Size = Vector3.new(2, 2, 1)
+	torso.BrickColor = BrickColor.new("Pebble")
+	torso.Transparency = 0 -- Make it visible
+	
+	-- 3. Add the Humanoid (This makes it a "Character")
+	local hum = Instance.new("Humanoid", dummy)
+	hum.MaxHealth = 1000
+	hum.Health = 1000
+	
+	-- 4. Position it in front of the player
+	local playerRoot = character:WaitForChild("HumanoidRootPart")
+	torso.CFrame = playerRoot.CFrame * CFrame.new(0, 0, -10) -- 10 studs away
+	
+	-- 5. Hit Effect: Flashes red when you punch it
+	hum.HealthChanged:Connect(function()
+		torso.Color = Color3.new(1, 0, 0) -- Turn Red
+		task.wait(0.1)
+		torso.Color = Color3.new(0.6, 0.6, 0.6) -- Back to Grey
+	end)
+	
+	print("DUMMY READY FOR BEATING!")
+end
+
+-- 6. Trigger the spawn
+spawnPracticeDummy()
+// Fighting Styles Tutorial!!!
+-- SERVER SCRIPT (ServerScriptService)
+local function createRealThug(spawnPos)
+	-- 1. Create a "Blank Slate" character model
+	local thug = Instance.new("Model", workspace)
+	thug.Name = "Street Thug"
+	
+	-- 2. Use a built-in Roblox ID to give it a body (R15 Block Rig)
+	-- We use a preset dummy ID so you don't have to build it!
+	local dummyModel = game:GetObjects("rbxassetid://1664543084")[1] 
+	dummyModel.Parent = workspace
+	dummyModel:MoveTo(spawnPos)
+	dummyModel.Name = "Street Thug"
+	
+	local hum = dummyModel:FindFirstChildOfClass("Humanoid")
+	local root = dummyModel:FindFirstChild("HumanoidRootPart")
+
+	-- 3. Give him a "Thug" outfit (Black suit style)
+	local shirt = Instance.new("Shirt", dummyModel)
+	shirt.ShirtTemplate = "rbxassetid://6065160882" -- Suit template
+	
+	local pants = Instance.new("Pants", dummyModel)
+	pants.PantsTemplate = "rbxassetid://6065162450"
+
+	-- 4. THE AI BRAIN (Same as before, but inside the human)
+	local aiScript = Instance.new("Script", dummyModel)
+	aiScript.Source = [[
+		local dummy = script.Parent
+		local hum = dummy:WaitForChild("Humanoid")
+		local root = dummy:WaitForChild("HumanoidRootPart")
+		
+		while task.wait(0.5) do
+			local target = nil
+			-- Search for the nearest player
+			for _, p in pairs(game.Players:GetPlayers()) do
+				if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+					target = p.Character.HumanoidRootPart
+					break
+				end
+			end
+			
+			if target then
+				local dist = (root.Position - target.Position).Magnitude
+				if dist < 30 and dist > 4 then
+					hum:MoveTo(target.Position) -- Chase
+				elseif dist <= 4 then
+					-- PUNCH LOGIC
+					print("THUG ATTACK!")
+					target.Parent.Humanoid:TakeDamage(5)
+					task.wait(1.5) -- Attack Cooldown
+				end
+			end
+		end
+	]]
+end
+
+-- Wait a few seconds for the game to load, then spawn him!
+task.wait(5)
+createRealThug(Vector3.new(0, 10, 10))
+
+
+local UIS = game:GetService("UserInputService")
+local player = game.Players.LocalPlayer
+local gui = player.PlayerGui:WaitForChild("YakuzaHUD") -- Assuming you kept the HUD name
+
+-- Create Tutorial UI
+local tutorialFrame = Instance.new("Frame", gui)
+tutorialFrame.Size = UDim2.new(0, 400, 0, 80)
+tutorialFrame.Position = UDim2.new(0.5, -200, 0.8, 0)
+tutorialFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+tutorialFrame.BackgroundTransparency = 0.5
+
+local tutorialText = Instance.new("TextLabel", tutorialFrame)
+tutorialText.Size = UDim2.new(1, -20, 1, -20)
+tutorialText.Position = UDim2.new(0, 10, 0, 10)
+tutorialText.BackgroundTransparency = 1
+tutorialText.TextColor3 = Color3.new(1, 1, 1)
+tutorialText.Font = Enum.Font.LuckiestGuy
+tutorialText.TextSize = 24
+tutorialText.TextWrapped = true
+
+-- Tutorial State
+local currentStep = 1
+local steps = {
+	"Press '1' to enter BRAWLER style.",
+	"Press '2' to enter RUSH style.",
+	"Press '3' to enter BEAST style.",
+	"Left Click to perform a COMBO.",
+	"Build Heat and press 'E' near a dummy for a HEAT ACTION!"
+}
+
+local function nextStep()
+	currentStep = currentStep + 1
+	if currentStep <= #steps then
+		tutorialText.Text = steps[currentStep]
+		-- Add a little "ding" sound here if you want!
+	else
+		tutorialText.Text = "TUTORIAL COMPLETE! GO CONQUER THE STARS."
+		task.wait(3)
+		tutorialFrame:Destroy()
+	end
+end
+
+-- Initialization
+tutorialText.Text = steps[currentStep]
+
+-- Check for actions
+UIS.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	
+	if currentStep == 1 and input.KeyCode == Enum.KeyCode.One then
+		nextStep()
+	elseif currentStep == 2 and input.KeyCode == Enum.KeyCode.Two then
+		nextStep()
+	elseif currentStep == 3 and input.KeyCode == Enum.KeyCode.Three then
+		nextStep()
+	elseif currentStep == 4 and input.UserInputType == Enum.UserInputType.MouseButton1 then
+		nextStep()
+	elseif currentStep == 5 and input.KeyCode == Enum.KeyCode.E then
+		-- In a real game, you'd check if they actually hit a dummy
+		nextStep()
+	end
+end)
+
+
+
+
+
+
+
+
+
+
+
+spawnPracticeDummy()
