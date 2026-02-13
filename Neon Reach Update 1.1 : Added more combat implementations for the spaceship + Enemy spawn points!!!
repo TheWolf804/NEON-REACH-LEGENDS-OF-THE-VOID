@@ -1,0 +1,73 @@
+local function fireShipWeapon()// Spaceship combat part !
+	local projectile = Instance.new("Part", workspace)
+	projectile.Size = Vector3.new(1, 1, 4)
+	projectile.CFrame = ship.CFrame
+	projectile.CanCollide = false
+	
+	local bv = Instance.new("BodyVelocity", projectile)
+	
+	-- CHANGE ATTACK BASED ON STYLE
+	if currentStyle == "Brawler" then
+		projectile.Color = Color3.new(0, 0.5, 1) -- Blue
+		bv.Velocity = ship.CFrame.LookVector * 200
+		-- Standard Damage
+	elseif currentStyle == "Rush" then
+		projectile.Color = Color3.new(1, 1, 0) -- Yellow
+		projectile.Size = Vector3.new(0.5, 0.5, 2)
+		bv.Velocity = ship.CFrame.LookVector * 400 -- Faster projectiles
+	elseif currentStyle == "Beast" then
+		projectile.Color = Color3.new(1, 0, 0) -- Red
+		projectile.Size = Vector3.new(3, 3, 3) -- Massive Cannonball
+		bv.Velocity = ship.CFrame.LookVector * 100 -- Slower but heavy
+	end
+	
+	game.Debris:AddItem(projectile, 3) -- Cleanup after 3 seconds
+end
+// Enemy spawn implementation part 
+local function spawnEnemy(position, enemyType)
+    local thug = game:GetObjects("rbxassetid://1664543084")[1] 
+    thug.Parent = workspace
+    thug:MoveTo(position)
+    
+    local hum = thug:FindFirstChildOfClass("Humanoid")
+    local nameTag = Instance.new("BillboardGui", thug.Head) -- Show their type above head
+    nameTag.Size = UDim2.new(0, 100, 0, 50)
+    nameTag.AlwaysOnTop = true
+    
+    local nameLabel = Instance.new("TextLabel", nameTag)
+    nameLabel.Size = UDim2.new(1,0,1,0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextSize = 20
+    nameLabel.Font = Enum.Font.LuckiestGuy
+
+    -- CUSTOMIZE BASED ON TYPE
+    if enemyType == "Tank" then
+        thug.Name = "Heavy Thug"
+        hum.MaxHealth = 300
+        hum.Health = 300
+        hum.WalkSpeed = 8
+        thug.Head.Color = Color3.new(1, 0, 0) -- Red head
+        nameLabel.Text = "TANK"
+        nameLabel.TextColor3 = Color3.new(1, 0, 0)
+    elseif enemyType == "Speedster" then
+        thug.Name = "Quick Thug"
+        hum.MaxHealth = 60
+        hum.Health = 60
+        hum.WalkSpeed = 24
+        thug.Head.Color = Color3.new(1, 1, 0) -- Yellow head
+        nameLabel.Text = "SPEEDSTER"
+        nameLabel.TextColor3 = Color3.new(1, 1, 0)
+    else
+        thug.Name = "Street Thug"
+        hum.MaxHealth = 100
+        hum.Health = 100
+        nameLabel.Text = "GRUNT"
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    end
+end
+
+-- Spawn a mix of enemies
+task.wait(5)
+spawnEnemy(Vector3.new(0, 10, 10), "Grunt")
+spawnEnemy(Vector3.new(10, 10, 10), "Tank")
+spawnEnemy(Vector3.new(-10, 10, 10), "Speedster")
