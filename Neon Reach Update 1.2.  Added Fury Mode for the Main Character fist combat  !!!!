@@ -1,0 +1,38 @@
+local isDarkAwakening = false
+local attackSpeed = 0.5
+if isDarkAwakening then
+    attackSpeed = 0.2 -- Much faster punches!
+end
+local function toggleDarkAwakening(enable)
+	isDarkAwakening = enable
+	local hum = character:WaitForChild("Humanoid")
+	
+	if enable then
+		-- DARK AWAKENING START
+		hum.WalkSpeed = 30 
+		
+		-- Create Purple Aura
+		local aura = Instance.new("ParticleEmitter", character.HumanoidRootPart)
+		aura.Name = "DarkAura"
+		aura.Color = ColorSequence.new(Color3.fromRGB(120, 0, 255), Color3.fromRGB(0, 0, 0))
+		aura.Size = NumberSequence.new(3, 0)
+		aura.Transparency = NumberSequence.new(0.5, 1)
+		aura.Lifetime = NumberRange.new(0.5, 1)
+		aura.Rate = 100
+		
+		-- Screen Tint
+		local cc = Instance.new("ColorCorrectionEffect", game.Lighting)
+		cc.Name = "DarkTint"
+		cc.TintColor = Color3.fromRGB(200, 180, 255)
+		cc.Saturation = 0.8
+	else
+		-- RESET TO NORMAL
+		hum.WalkSpeed = 16
+		if character.HumanoidRootPart:FindFirstChild("DarkAura") then
+			character.HumanoidRootPart.DarkAura:Destroy()
+		end
+		if game.Lighting:FindFirstChild("DarkTint") then
+			game.Lighting.DarkTint:Destroy()
+		end
+	end
+end
