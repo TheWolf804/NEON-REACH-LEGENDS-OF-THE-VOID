@@ -1,0 +1,73 @@
+local spaceshipStats = {
+	["Speed Boost"] = 0, -- Max 5
+	["Engine"]      = 0, -- Max 5
+	["Weapons"]     = 0, -- Max 5
+	["Defensive"]   = 0  -- Max 5
+}
+
+local maxLevel = 5
+local upgradeCost = 50 -- SP cost per upgrade
+local function upgradeSpaceship(category)
+	if exp >= upgradeCost then
+		if spaceshipStats[category] < maxLevel then
+			exp -= upgradeCost
+			spaceshipStats[category] += 1
+			print(category .. " upgraded to level " .. spaceshipStats[category])
+			
+			-- Update HUD or SP display here
+			updateHUD() 
+		else
+			print(category .. " is already at Max Level!")
+		end
+	else
+		print("Not enough SP to upgrade " .. category)
+	end
+end
+local function applyUpgradesToShip(shipModel)
+	local speedMultiplier = 1 + (spaceshipStats["Speed Boost"] * 0.2) -- +20% per level
+	local enginePower = 1 + (spaceshipStats["Engine"] * 0.15)
+	local weaponDamage = 1 + (spaceshipStats["Weapons"] * 0.25)
+	local armorBonus = spaceshipStats["Defensive"] * 100 -- +100 Health per level
+
+	-- Example application
+	shipModel.Configuration.MaxSpeed.Value = 100 * speedMultiplier
+	shipModel.Configuration.Health.Value = 500 + armorBonus
+end
+
+//Combat fists skill tree
+local fistUpgrades = {
+	["Attack Speed"] = 0, -- Faster punch animations
+	["Damage Boost"] = 0, -- Higher damage per hit
+	["Heat Gain"]    = 0, -- Build Heat faster
+	["Guard Break"]  = 0  -- Ability to punch through enemy blocks
+}
+
+local upgradeCostFists = 75 -- Starting SP cost for combat skills
+local function calculatePunchDamage()
+	local baseDamage = 10
+	if currentStyle == "Beast" then baseDamage = 20 end
+	
+	-- Apply Skill Tree Bonus
+	local bonus = fistUpgrades["Damage Boost"] * 5 -- +5 damage per level
+	return baseDamage + bonus
+end
+
+local function getPunchCooldown()
+	local baseWait = 0.4
+	-- Reduce wait time by 0.05 per level
+	return baseWait - (fistUpgrades["Attack Speed"] * 0.05) 
+end
+-- Inside your "On Hit" logic
+local breakChance = fistUpgrades["Guard Break"] * 10 -- 10% per level
+local roll = math.random(1, 100)
+
+if enemyIsBlocking and roll <= breakChance then
+    -- Force the enemy out of blocking state
+    enemyHumanoid:TakeDamage(calculatePunchDamage())
+    print("GUARD BROKEN!")
+end
+-- When you land a hit:
+local heatEarned = 5
+local multiplier = 1 + (fistUpgrades["Heat Gain"] * 0.2) -- +20% more heat per level
+
+heat = math.min(100, heat + (heatEarned * multiplier))
