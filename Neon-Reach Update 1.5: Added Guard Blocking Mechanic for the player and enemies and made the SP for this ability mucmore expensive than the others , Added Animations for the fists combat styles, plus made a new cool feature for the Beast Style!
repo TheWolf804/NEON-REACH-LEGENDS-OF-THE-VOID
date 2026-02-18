@@ -1,0 +1,170 @@
+-- Inside the Thug's Script
+local isBlocking = false
+
+-- Simple AI logic: If player is close, 30% chance to block
+task.spawn(function()
+    while thug.Parent do
+        if targetDist < 5 then
+            local chance = math.random(1, 10)
+            isBlocking = (chance <= 3) -- 30% chance to guard
+        end
+        task.wait(1)
+    end
+end)
+-- Inside your Attack/Punch Function
+local guardBreakLevel = fistUpgrades["Guard Break"]
+local breakChance = guardBreakLevel * 15 -- 15% chance per level (Max 75% at Lv 5)
+
+if thug.isBlocking then
+    local roll = math.random(1, 100)
+    
+    if roll <= breakChance then
+        -- SUCCESS: Break the guard
+        thug.isBlocking = false 
+        thug.Humanoid:TakeDamage(damage)
+        
+        -- Play a "Cling" sound or Shield Break effect
+        print("GUARD BROKEN!") 
+    else
+        -- FAILURE: Punch is deflected
+        print("PUNCH DEFLECTED")
+        -- Maybe play a 'tink' sound and deal 0 damage
+    end
+else
+    -- Enemy wasn't blocking, deal normal damage
+    thug.Humanoid:TakeDamage(damage)
+//Fighting styles animations 
+local animFolder = script:WaitForChild("Animations")
+local currentTracks = {}
+
+-- Function to stop all currently playing animations
+local function stopAllAnims()
+	for _, track in pairs(currentTracks) do
+		track:Stop()
+	end
+	currentTracks = {}
+end
+
+-- Function to play a specific animation track
+local function playAnim(animName, loop)
+	local animObject = animFolder:FindFirstChild(currentStyle .. "_" .. animName)
+	if animObject then
+		local track = humanoid:LoadAnimation(animObject)
+		track.Looped = loop or false
+		track:Play()
+		table.insert(currentTracks, track)
+		return track
+	end
+end
+humanoid.Running:Connect(function(speed)
+	stopAllAnims()
+	if speed > 0.1 then
+		-- Player is walking/running
+		playAnim("Walk", true)
+	else
+		-- Player is standing still
+		playAnim("Idle", true)
+	end
+end)
+local combo = 1
+local lastPunch = 0
+local cooldown = 0.5
+
+UIS.InputBegan:Connect(function(input, proc)
+	if proc then return end
+	
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local now = tick()
+		if now - lastPunch > cooldown then
+			-- Reset combo if too much time passed
+			if now - lastPunch > 1.5 then combo = 1 end
+			
+			stopAllAnims()
+			playAnim("Punch" .. combo)
+			
+			-- Logic for the next punch
+			combo = (combo % 3) + 1 -- Cycles 1, 2, 3
+			lastPunch = now
+			
+			-- Trigger Hitbox detection here
+			print("Executed " .. currentStyle .. " Punch " .. combo)
+		end
+	end
+end)
+//Objects interactions and weapons pickups and attacks  for the Beast Style!
+local CollectionService = game:GetService("CollectionService")
+
+local function findNearestObject()
+	local closestObj = nil
+	local shortestDist = 6 -- Range for picking up objects
+	
+	for _, obj in pairs(CollectionService:GetTagged("BeastWeapon")) do
+		local dist = (character.HumanoidRootPart.Position - obj.Position).Magnitude
+		if dist < shortestDist then
+			closestObj = obj
+			shortestDist = dist
+		end
+	end
+	return closestObj
+end
+
+local heldObject = nil
+
+local function pickUpObject(obj)
+	heldObject = obj
+	obj.CanCollide = false
+	
+	-- Create a Weld to the Right Arm
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "BeastWeld"
+	obj.CFrame = character["Right Arm"].CFrame * CFrame.new(0, -1, 0)
+	weld.Part0 = character["Right Arm"]
+	weld.Part1 = obj
+	weld.Parent = obj
+	
+	-- Change animations to "Carrying"
+	stopAllAnims()
+	playAnim("CarryIdle", true)
+end
+-- Inside your MouseClick logic
+if currentStyle == "Beast" then
+	local obj = findNearestObject()
+	
+	if not heldObject and obj then
+		pickUpObject(obj)
+	elseif heldObject then
+		-- PERFORM SWING
+		playAnim("Beast_ObjectSwing")
+		
+		-- Damage Logic
+		heldObject.Touched:Connect(function(hit)
+			if hit.Parent:FindFirstChild("Humanoid") and hit.Parent ~= character then
+				hit.Parent.Humanoid:TakeDamage(40) -- High Beast Damage
+				
+				-- Object Durability
+				local durability = heldObject:FindFirstChild("Durability") or Instance.new("IntValue", heldObject)
+				durability.Value += 1
+				
+				if durability.Value >= 3 then -- Object breaks after 3 hits
+					heldObject:Destroy()
+					heldObject = nil
+					playAnim("Idle", true)
+				end
+			end
+		end)
+	else
+		-- No object? Just do the heavy Beast stomp/punch
+		playAnim("Beast_Punch1")
+	end
+end
+-- Inside your setStyle() function
+if oldStyle == "Beast" and heldObject then
+	if heldObject:FindFirstChild("BeastWeld") then
+		heldObject.BeastWeld:Destroy()
+	end
+	heldObject.CanCollide = true
+	heldObject = nil
+end
+
+    
+end
