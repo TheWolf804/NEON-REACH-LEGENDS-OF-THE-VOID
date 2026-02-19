@@ -1,0 +1,129 @@
+local NPC_Folder = game.Workspace:FindFirstChild("NPCs") or Instance.new("Folder", workspace)
+NPC_Folder.Name = "NPCs"
+
+local MAX_THUGS = 5
+local THUG_ID = "rbxassetid://1664543084" -- Your Thug Model ID
+
+local function spawnThug()
+	local newThug = game:GetObjects(THUG_ID)[1]
+	newThug.Parent = NPC_Folder
+	
+	-- Random spawn point (Adjust these coordinates to your map)
+	local randomPos = Vector3.new(math.random(-50, 50), 5, math.random(-50, 50))
+	newThug:MoveTo(randomPos)
+	
+	-- Connect death to respawn timer
+	newThug.Humanoid.Died:Connect(function()
+		task.wait(10) -- Wait 10 seconds before replacing them
+		newThug:Destroy()
+		spawnThug()
+	end)
+end
+
+-- Initial Population
+for i = 1, MAX_THUGS do
+	spawnThug()
+	task.wait(1)
+end
+local Chat = game:GetService("Chat")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- The lines NPCs will say
+local ambientLines = {
+	"The artificial gravity feels off today...",
+	"I heard the Captain is looking for new recruits.",
+	"Did you see that fight in the docking bay?",
+	"I really need a drink at the Star-Bar.",
+	"Watch where you're going, pal!",
+	"This spaceship is huge... I think I'm lost."
+}
+
+local function handleAmbientChat()
+	while task.wait(3) do -- Check every 3 seconds
+		local character = player.Character
+		if not character then continue end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if not root then continue end
+
+		-- Look for nearby NPCs
+		for _, npc in pairs(workspace.NPCs:GetChildren()) do
+			local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+			local isAmbient = npc:FindFirstChild("IsAmbient") -- Tag for non-hostile NPCs
+
+			if npcRoot and isAmbient then
+				local distance = (root.Position - npcRoot.Position).Magnitude
+				
+				-- If player is close (15 studs), NPC might say something
+				if distance < 15 and math.random(1, 10) > 7 then
+					local randomLine = ambientLines[math.random(1, #ambientLines)]
+					
+					Chat:Chat(npcRoot.Parent, randomLine, Enum.ChatColor.White)
+				end
+			end
+		end
+	end
+end
+
+task.spawn(handleAmbientChat)
+local SubstoryData = {
+	["The Hungry Pilot"] = {
+		ID = 1,
+		TriggerType = "Proximity", -- Triggered by walking near
+		IsCompleted = false,
+		Description = "Bring a Star-Bento to the pilot in Docking Bay 4.",
+		RequiredLevel = 1
+	},
+	["Debt Collector"] = {
+		ID = 2,
+		TriggerType = "Random", -- 10% chance to trigger when entering a zone
+		IsCompleted = false,
+		Description = "Defend the merchant from the Space-Thugs.",
+		RequiredLevel = 3
+	},
+	["Fast and Furious"] = {
+		ID = 3,
+		TriggerType = "Action", -- Triggered by reaching a certain Speed in Rush Style
+		IsCompleted = false,
+		Description = "A racer noticed your speed and wants to challenge you.",
+		RequiredLevel = 5
+	}
+}
+return SubstoryData
+local SubstoryData = require(game.ReplicatedStorage.SubstoryData)
+
+-- Function to start a quest
+local function startSubstory(playerName, questName)
+	local quest = SubstoryData[questName]
+	if quest and not quest.IsCompleted then
+		print("SUBSTORY START: " .. questName)
+		-- Fire a RemoteEvent to show the "Substory Start" UI (The guitar riff/text)
+		game.ReplicatedStorage.RemoteEvents.SubstoryUI:FireClient(playerName, questName)
+	end
+end
+
+-- RANDOM TRIGGER: Triggered when player enters a specific area
+workspace.TriggerZones.MarketZone.Touched:Connect(function(hit)
+	local player = game.Players:GetPlayerFromCharacter(hit.Parent)
+	if player then
+		local roll = math.random(1, 100)
+		if roll <= 10 then -- 10% chance
+			startSubstory(player, "Debt Collector")
+		end
+	end
+end)
+-- Inside your CombatHandler (LocalScript)
+local rushTime = 0
+
+game:GetService("RunService").Heartbeat:Connect(function(dt)
+	if currentStyle == "Rush" and humanoid.MoveDirection.Magnitude > 0 then
+		rushTime += dt
+		if rushTime > 60 then -- If they run in Rush mode for a full minute
+			-- Trigger the "Fast and Furious" Substory
+			game.ReplicatedStorage.RemoteEvents.TriggerQuest:FireServer("Fast and Furious")
+			rushTime = 0 -- Reset
+		end
+	else
+		rushTime = 0
+	end
+end)
