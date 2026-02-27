@@ -1,0 +1,155 @@
+//Second heat bar implementation for the four fighting styles existent into the game 
+local heat = 0          -- Bar 1 (0 to 100)
+local climaxHeat = 0    -- Bar 2 (0 to 100)
+
+local function addHeat(amount)
+	if heat < 100 then
+		heat = math.min(100, heat + amount)
+	else
+		-- First bar is full, start filling the Climax Bar
+		climaxHeat = math.min(100, climaxHeat + (amount * 0.5)) -- Fills slower
+	end
+	updateHeatUI()
+end
+//Powerfull enemies hyper armor
+local isTank = true -- Set this for your heavy enemies
+
+function onTakeDamage(damage, attackType)
+    if isTank then
+        if attackType == "Light" then
+            -- Take damage, but DON'T play the flinch animation
+            humanoid:TakeDamage(damage * 0.5) -- Tanks take 50% less from light hits
+            print("Tank soaked up the hit!")
+        else
+            -- Heavy/Beast/Heat moves break the armor
+            humanoid:TakeDamage(damage)
+            playFlinchAnimation()
+        end
+    else
+        -- Regular enemy logic
+        humanoid:TakeDamage(damage)
+        playFlinchAnimation()
+    end
+//Enemy AI dodge and evasion on player's attacks
+-- Dodger AI snippet
+humanoidRootPart.Touched:Connect(function(hit)
+    if hit.Parent == playerCharacter and isDodger then
+        local roll = math.random(1, 10)
+        if roll > 6 then -- 40% chance to dodge
+            -- Play a quick dash animation to the side
+            applyDashVelocity(Vector3.new(5, 0, 0)) 
+            print("Dodger slipped the punch!")
+        end
+    end
+end)
+//Climax Heat action system from Yakuza Kiwami 1
+local isExtremeHeat = false
+local climaxHeat = 0 -- Our second bar
+
+local function toggleExtremeHeat()
+	if climaxHeat >= 100 and not isExtremeHeat then
+		isExtremeHeat = true
+		print("EXTREME HEAT ACTIVATED")
+		
+		-- 1. Stat Buffs
+		humanoid.WalkSpeed = 24 -- Speed boost
+		-- Enable Super Armor (Logic in step 2)
+		
+		-- 2. Visuals
+		spawnExtremeAura() 
+		
+		-- 3. Drain Logic
+		task.spawn(function()
+			while climaxHeat > 0 and isExtremeHeat do
+				climaxHeat -= 2 -- Drains over 50 seconds (or faster)
+				updateUI()
+				task.wait(0.1)
+			end
+			deactivateExtremeHeat()
+		end)
+	end
+end
+humanoid.AnimationPlayed:Connect(function(track)
+	if isExtremeHeat then
+		-- Check if the animation is a "Hit" or "Stumble" animation
+		if track.Name == "HitReaction" or track.Name == "Stunned" then
+			track:Stop() -- Forcefully stop the flinch
+			print("Super Armor soaked the hit!")
+		end
+	end
+end)
+//Special Aura for the Climax Heat mode 
+local function spawnExtremeAura()
+	local aura = game.ReplicatedStorage.Effects.ExtremeAura:Clone()
+	aura.Parent = character.HumanoidRootPart
+	
+	-- Change color based on style
+	if currentStyle == "Brawler" then
+		aura.Color = ColorSequence.new(Color3.fromRGB(0, 170, 255))
+	elseif currentStyle == "Rush" then
+		aura.Color = ColorSequence.new(Color3.fromRGB(255, 0, 200))
+	end
+	
+	-- Add a screen tint for the player
+	local colorCorrection = game.Lighting:FindFirstChild("ExtremeTint") or Instance.new("ColorCorrectionEffect", game.Lighting)
+	colorCorrection.Name = "ExtremeTint"
+	colorCorrection.Saturation = 1.5
+	colorCorrection.Contrast = 0.2
+end
+// A script that deactivates the climax heat mechanic when the player heat bar reaches 0
+local function deactivateExtremeHeat()
+	isExtremeHeat = false
+	humanoid.WalkSpeed = 16 -- Normal speed
+	
+	-- Remove effects
+	if character.HumanoidRootPart:FindFirstChild("ExtremeAura") then
+		character.HumanoidRootPart.ExtremeAura:Destroy()
+	end
+	if game.Lighting:FindFirstChild("ExtremeTint") then
+		game.Lighting.ExtremeTint.Enabled = false
+	end
+	
+	print("Extreme Heat Ended")
+end
+// Implementing Aura Colors for each fighting style for the fists combat 
+local function spawnExtremeAura()
+	local root = character:WaitForChild("HumanoidRootPart")
+	local aura = game.ReplicatedStorage.Effects.PlasmaAura:Clone()
+	aura.Parent = root
+	
+	-- Define our Plasma Colors
+	local styleColors = {
+		["Brawler"] = Color3.fromRGB(0, 150, 255),  -- Blue Plasma
+		["Rush"]    = Color3.fromRGB(255, 255, 0), -- Yellow Plasma
+		["Beast"]   = Color3.fromRGB(255, 0, 0),   -- Red Plasma
+		["Dragon"]  = Color3.fromRGB(255, 255, 255) -- White Light
+	}
+
+	-- Apply the color based on current style
+	local selectedColor = styleColors[currentStyle] or styleColors["Brawler"]
+	aura.Color = ColorSequence.new(selectedColor)
+	
+	-- Optional: Add a PointLight to the character so they glow in the dark
+	local glow = Instance.new("PointLight")
+	glow.Name = "HeatGlow"
+	glow.Color = selectedColor
+	glow.Brightness = 3
+	glow.Range = 15
+	glow.Parent = root
+end
+// Style switching in Climax Heat mode 
+-- Inside your style switching function:
+if isExtremeHeat then
+	local aura = character.HumanoidRootPart:FindFirstChild("PlasmaAura")
+	local glow = character.HumanoidRootPart:FindFirstChild("HeatGlow")
+	
+	if aura and glow then
+		local newColor = styleColors[currentStyle]
+		aura.Color = ColorSequence.new(newColor)
+		glow.Color = newColor
+	end
+end
+
+
+    
+end
