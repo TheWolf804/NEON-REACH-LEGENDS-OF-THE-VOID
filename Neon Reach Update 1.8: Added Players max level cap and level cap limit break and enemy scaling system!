@@ -1,0 +1,87 @@
+local playerLevel = 1
+local currentEXP = 0
+local MAX_LEVEL = 50
+
+-- Formula for EXP needed: (Level * 100)
+local function getRequiredEXP(level)
+	return level * 100 
+end
+
+local function addEXP(amount)
+	if playerLevel >= MAX_LEVEL then 
+		print("MAX LEVEL REACHED")
+		return 
+	end
+	
+	currentEXP += amount
+	
+	while currentEXP >= getRequiredEXP(playerLevel) do
+		currentEXP -= getRequiredEXP(playerLevel)
+		playerLevel += 1
+		
+		-- LEVEL UP EFFECTS
+		playLevelUpSound()
+		print("LEVEL UP: " .. playerLevel)
+		
+		if playerLevel == MAX_LEVEL then
+			print("YOU ARE NOW A LEGEND")
+			-- Unlock special Dragon Style perk here
+			break
+		end
+	end
+//Players max level cap limit breaking (Post-game)!
+local function updateUI()
+	if playerLevel >= MAX_LEVEL then
+		XP_Bar.Size = UDim2.new(1, 0, 1, 0) -- Full Bar
+		LevelText.Text = "LV. MAX"
+		XP_Text.Text = "LEGENDARY"
+	else
+		local progress = currentEXP / getRequiredEXP(playerLevel)
+		XP_Bar.Size = UDim2.new(progress, 0, 1, 0)
+		LevelText.Text = "LV. " .. playerLevel
+	end
+end
+//The enemy scaling system
+local function getEnemyLevel(zoneBaseLevel)
+	-- Enemies are usually around the zone level, plus/minus a bit of randomness
+	local randomVariation = math.random(-2, 3)
+	local enemyLevel = math.clamp(zoneBaseLevel + randomVariation, 1, 60) -- Max Cap 60
+	
+	return enemyLevel
+end
+//Enemy stats scaling
+local function applyEnemyStats(enemyModel, level)
+	local humanoid = enemyModel:WaitForChild("Humanoid")
+	
+	-- Scaling Formulas
+	local baseHealth = 100
+	local baseDamage = 10
+	
+	humanoid.MaxHealth = baseHealth + (level * 25) -- +25 HP per level
+	humanoid.Health = humanoid.MaxHealth
+	
+	-- Custom Damage Attribute for the AI to use
+	enemyModel:SetAttribute("Damage", baseDamage + (level * 2))
+	
+	-- Visual Indicator (The Level Tag over their head)
+	if enemyModel:FindFirstChild("Head") then
+		local billboard = enemyModel.Head:FindFirstChild("LevelUI")
+		if billboard then
+			billboard.TextLabel.Text = "Lv. " .. level
+			-- If level 50+, make the text RED or GOLD
+			if level >= 50 then
+				billboard.TextLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+			end
+		end
+	end
+end
+//Level Difference penalties!!!
+local function calculateDamage(attackerLevel, defenderLevel, baseDmg)
+	local levelDiff = attackerLevel - defenderLevel
+	
+	-- If enemy is much higher level, they do more damage
+	local multiplier = 1 + (levelDiff * 0.05) -- 5% change per level difference
+	return baseDmg * math.clamp(multiplier, 0.5, 2.0)
+end
+
+end
