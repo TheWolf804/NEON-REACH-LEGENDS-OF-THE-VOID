@@ -1,0 +1,94 @@
+//Enemies danger levels visual cue code
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local THREAT_DIFF = 10 -- How many levels higher before the skull appears
+
+RunService.Heartbeat:Connect(function()
+    local char = player.Character
+    if not char then return end
+    local myLevel = char:GetAttribute("Level") or 1
+
+    for _, enemy in pairs(workspace.NPCs:GetChildren()) do
+        local enemyLevel = enemy:GetAttribute("Level") or 1
+        local head = enemy:FindFirstChild("Head")
+        
+        if head then
+            local billboard = head:FindFirstChild("ThreatUI")
+            if billboard then
+                -- Check if enemy is 10+ levels higher OR if they are a Boss
+                if enemyLevel >= myLevel + THREAT_DIFF or enemy:GetAttribute("IsBoss") then
+                    billboard.Enabled = true
+                    billboard.SkullIcon.ImageColor3 = Color3.fromRGB(255, 0, 0) -- Bright Red
+                else
+                    billboard.Enabled = false
+                end
+            end
+        end
+    end
+//Red skull enemies "Elite" Aura
+-- Inside the Enemy Spawner when a high-level enemy is created
+if enemyLevel >= 50 then
+    local redHaze = game.ReplicatedStorage.Effects.RedPlasmaHaze:Clone()
+    redHaze.Parent = enemy.HumanoidRootPart
+    
+    -- Make the enemy slightly larger (1.1x scale) to look more imposing
+    enemy.Humanoid.HeadScale = 1.1
+    enemy.Humanoid.BodyHeightScale = 1.1
+    enemy.Humanoid.BodyWidthScale = 1.1
+end
+//Loot drop system implementation
+local LootTable = {
+	["Common"] = {
+		Items = {"Space Bento", "Scrap Metal", "Small SP Pouch"},
+		Chance = 70
+	},
+	["Legendary"] = { -- Only drops from Red Skull / Bosses
+		Items = {"Plasma Reactor Core", "Experimental Laser Blueprint", "Dragon's Spirit"},
+		Chance = 5 -- 5% Drop rate
+	}
+}
+return LootTable
+local function dropLoot(deathPosition, isRedSkull)
+	local lootType = "Common"
+	
+	-- If it's a Red Skull enemy, roll for Legendary
+	if isRedSkull then
+		local roll = math.random(1, 100)
+		if roll <= 15 then -- 15% chance for Red Skulls specifically
+			lootType = "Legendary"
+		end
+	end
+
+	-- Create the Physical Drop
+	local drop = Instance.new("Part")
+	drop.Size = Vector3.new(2, 2, 2)
+	drop.Position = deathPosition + Vector3.new(0, 2, 0)
+	drop.CanCollide = false
+	drop.Anchored = false
+	drop.Parent = workspace
+	
+	-- Visual Polish
+	local attachment = Instance.new("Attachment", drop)
+	local glow = Instance.new("ParticleEmitter", attachment)
+	
+	if lootType == "Legendary" then
+		drop.Color = Color3.fromRGB(255, 215, 0) -- Gold
+		glow.Color = ColorSequence.new(Color3.fromRGB(255, 170, 0))
+		-- Add a "Beam of Light" going into the sky so you don't lose it
+	else
+		drop.Color = Color3.fromRGB(200, 200, 200) -- Silver/Grey
+	end
+end
+//Integration of the Loot system for the Red skulled enemies
+enemy.Humanoid.Died:Connect(function()
+    local isRedSkull = (enemy:GetAttribute("Level") >= playerLevel + 10)
+    dropLoot(enemy.HumanoidRootPart.Position, isRedSkull)
+    
+    -- Extra Reward for the "Junkyard Idiot"
+    if isRedSkull then
+        addEXP(500) -- Massive XP boost for taking down a Red Skull
+    end
+end)
+end)
