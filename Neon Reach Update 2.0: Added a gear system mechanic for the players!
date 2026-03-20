@@ -1,0 +1,40 @@
+local GearDatabase = {
+	["Titanium Weave Suit"] = {
+		Slot = "Body",
+		DefenseBonus = 15,
+		HealthBonus = 50,
+		Rarity = "Rare"
+	},
+	["Thermal Dampener"] = {
+		Slot = "Armor",
+		FireResistance = 0.5, -- 50% less damage from fire/lasers
+		Rarity = "Uncommon"
+	},
+	["Brawler's Memory Chip"] = {
+		Slot = "Link",
+		HeatGainMultiplier = 1.25, -- 25% faster Heat
+		StyleBonus = "Brawler",
+		Rarity = "Legendary"
+	}
+}
+return GearDatabase
+local equippedGear = {
+	Body = "Titanium Weave Suit",
+	Armor = nil,
+	Link = "Brawler's Memory Chip"
+}
+
+local function getCombinedStats()
+	local totalStats = {Defense = 0, Health = 0, HeatMult = 1, Resists = {}}
+	
+	for slot, gearName in pairs(equippedGear) do
+		local data = GearDatabase[gearName]
+		if data then
+			totalStats.Defense += (data.DefenseBonus or 0)
+			totalStats.Health += (data.HealthBonus or 0)
+			totalStats.HeatMult *= (data.HeatGainMultiplier or 1)
+			-- Add more stat logic here
+		end
+	end
+	return totalStats
+end
