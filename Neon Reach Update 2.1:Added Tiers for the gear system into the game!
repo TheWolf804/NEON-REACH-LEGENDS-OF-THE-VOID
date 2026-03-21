@@ -1,0 +1,18 @@
+local function generateGear(itemName, targetTier)
+    local baseData = GearDatabase[itemName]
+    if not baseData then return nil end
+    
+    -- Tier Multipliers (Tier 1 = 1x, Tier 5 = 3x)
+    local tierMultipliers = {1, 1.2, 1.5, 2.0, 3.0}
+    local mult = tierMultipliers[targetTier] or 1
+    
+    local newGear = {
+        Name = itemName,
+        Tier = targetTier,
+        Defense = math.floor(baseData.DefenseBonus * mult),
+        Health = math.floor(baseData.HealthBonus * mult),
+        Slots = targetTier - 1, -- Tier 1 has 0 slots, Tier 5 has 4
+        Mods = {}
+    }
+    return newGear
+end
