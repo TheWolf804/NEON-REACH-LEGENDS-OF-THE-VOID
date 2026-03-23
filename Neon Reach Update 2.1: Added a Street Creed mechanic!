@@ -1,0 +1,33 @@
+local streetCred = 1
+local currentSC_XP = 0
+local MAX_SC = 50
+
+local function addStreetCred(amount)
+    if streetCred >= MAX_SC then return end
+    
+    currentSC_XP += amount
+    local requirement = streetCred * 150 -- SC levels up slower than Combat
+    
+    if currentSC_XP >= requirement then
+        currentSC_XP -= requirement
+        streetCred += 1
+        -- UI Notification: "STREET CRED INCREASED: LEVEL " .. streetCred
+        print("Your reputation is growing on the ship...")
+    end
+end
+//The Equip Check
+local function canEquip(itemTier)
+    local requirement = 1
+    if itemTier == 2 then requirement = 10
+    elseif itemTier == 3 then requirement = 20
+    elseif itemTier == 4 then requirement = 35
+    elseif itemTier == 5 then requirement = 50 end
+    
+    if streetCred >= requirement then
+        return true
+    else
+        -- Play a "Buzz" error sound
+        warn("You don't have enough Street Cred for this tech!")
+        return false
+    end
+end
