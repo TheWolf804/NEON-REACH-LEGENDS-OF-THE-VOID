@@ -1,0 +1,40 @@
+local Ingredients = {
+	["Tier1_Component"] = {Name = "Scrap Electronics", Rarity = "Common"},
+	["Tier2_Component"] = {Name = "Functioning Circuit", Rarity = "Uncommon"},
+	["Tier3_Component"] = {Name = "Adv. Processor", Rarity = "Rare"},
+	["Tier4_Component"] = {Name = "Military Grade Chip", Rarity = "Epic"},
+	["Tier5_Component"] = {Name = "AI Core Fragment", Rarity = "Legendary"}
+}
+local function craftItem(recipeName)
+	-- 1. Check if the player has the Brawler Skill unlocked
+	local hasCraftingSkill = playerStats.BrawlerSkills["Scrapper_1"]
+	
+	if not hasCraftingSkill then
+		warn("You need the Brawler 'Field Repairs' skill to craft!")
+		return
+	end
+
+	local recipe = RecipeDatabase[recipeName]
+	
+	-- 2. Check Materials
+	for ingredient, amount in pairs(recipe.Requirements) do
+		if inventory[ingredient] < amount then
+			print("Not enough " .. ingredient)
+			return
+		end
+	end
+
+	-- 3. Check Street Cred (Cyberpunk style)
+	if streetCred < recipe.RequiredSC then
+		print("Your reputation isn't high enough to handle this tech!")
+		return
+	end
+
+	-- 4. Execute Craft
+	for ingredient, amount in pairs(recipe.Requirements) do
+		inventory[ingredient] -= amount
+	end
+	
+	addToInventory(recipe.Result)
+	playCraftingSound() -- Use a metallic "clink" sound
+end
