@@ -1,0 +1,39 @@
+local BlueprintDatabase = {
+	["Plasma_Shiv"] = {
+		Name = "Ion-Etched Shiv",
+		Tier = 2,
+		RequiredSC = 10,
+		Ingredients = {["Scrap_Electronics"] = 15, ["Battery_Cell"] = 2},
+		Description = "A crude but effective energy blade. High bleed chance."
+	},
+	["Heavy_Exo_Glove"] = {
+		Name = "Titan-Grade Exo-Glove",
+		Tier = 4,
+		RequiredSC = 30,
+		Ingredients = {["Military_Chip"] = 5, ["Titanium_Plate"] = 10},
+		Description = "Reduces Beast Style stamina drain by 20%."
+	},
+	["Void_Dragon_Katana"] = {
+		Name = "Project: MURAMASA", -- Legendary
+		Tier = 5,
+		RequiredSC = 50,
+		Ingredients = {["AI_Core"] = 1, ["Plasma_Regulator"] = 5, ["Legendary_Component"] = 20},
+		Description = "The ultimate blade. Ignores enemy Defense entirely."
+	}
+}
+return BlueprintDatabase
+-- Server Script: When player picks up a Data Chip
+local function learnBlueprint(player, blueprintID)
+	local playerData = player:WaitForChild("DataValues")
+	local learnedList = playerData:WaitForChild("LearnedBlueprints")
+	
+	-- Check if already learned
+	if not learnedList:FindFirstChild(blueprintID) then
+		local newEntry = Instance.new("BoolValue")
+		newEntry.Name = blueprintID
+		newEntry.Parent = learnedList
+		
+		-- Trigger Yakuza-style UI Notification
+		remoteEvents.NotifyBlueprint:FireClient(player, BlueprintDatabase[blueprintID].Name)
+	end
+end
