@@ -1,0 +1,45 @@
+local BrawlerNodes = {
+    ["Crafting_1"] = {
+        Name = "Field Repairs",
+        Cost = 100,
+        Requirement = nil, -- First node in the branch
+        Description = "Allows crafting of Tier 1 items and disassembling junk.",
+        Effect = function(player) player:SetAttribute("CraftingTier", 1) end
+    },
+    ["Crafting_2"] = {
+        Name = "System Specialist",
+        Cost = 500,
+        Requirement = "Crafting_1", -- Must buy Node 1 first
+        Description = "Unlocks Tier 2 & 3 Blueprints.",
+        Effect = function(player) player:SetAttribute("CraftingTier", 3) end
+    },
+    ["Crafting_3"] = {
+        Name = "Legendary Smith",
+        Cost = 2500,
+        Requirement = "Crafting_2",
+        Description = "Unlocks Tier 4 & 5 Iconic Blueprints.",
+        Effect = function(player) player:SetAttribute("CraftingTier", 5) end
+    }
+}
+return BrawlerNodes
+local function buyNode(player, nodeID)
+    local node = BrawlerNodes[nodeID]
+    local currentSP = player:GetAttribute("SP")
+    local learned = player.LearnedSkills:FindFirstChild(nodeID)
+
+    if not learned and currentSP >= node.Cost then
+        -- Check if Requirement is met
+        if node.Requirement == nil or player.LearnedSkills:FindFirstChild(node.Requirement) then
+            -- Deduct SP and Unlock
+            player:SetAttribute("SP", currentSP - node.Cost)
+            local val = Instance.new("BoolValue", player.LearnedSkills)
+            val.Name = nodeID
+            
+            -- Apply the stat/ability
+            node.Effect(player)
+            
+            -- Play a "Skill Unlock" sound effect!
+            remoteEvents.SkillUnlockedUI:FireClient(player, node.Name)
+        end
+    end
+end
