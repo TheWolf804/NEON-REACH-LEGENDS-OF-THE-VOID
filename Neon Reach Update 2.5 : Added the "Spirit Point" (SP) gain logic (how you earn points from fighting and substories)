@@ -1,0 +1,56 @@
+local function calculateSPReward(enemyLevel, playerLevel, finishType, styleUsed)
+	local baseSP = enemyLevel * 10 -- Base reward
+	local multiplier = 1
+	
+	-- 1. Difficulty Bonus
+	local levelDiff = enemyLevel - playerLevel
+	if levelDiff >= 10 then 
+		multiplier += 1.5 -- Red Skull Bonus (+150%)
+	elseif levelDiff > 0 then
+		multiplier += 0.5 -- Challenge Bonus (+50%)
+	end
+	
+	-- 2. Style & Finish Bonus (The Yakuza Feel)
+	if finishType == "HeatAction" then
+		multiplier += 0.3
+	elseif finishType == "CraftedWeapon" then
+		multiplier += 0.2 -- Reward for using your Brawler skills!
+	end
+	
+	-- 3. Street Cred Synergy
+	-- Higher Street Cred gives a tiny passive boost to SP gain
+	local scBonus = (streetCred / 100) 
+	multiplier += scBonus
+
+	return math.floor(baseSP * multiplier)
+end
+-- Inside your SubstoryManager
+local function completeSubstory(player, questName)
+    local rewards = {
+        ["The Hungry Pilot"] = 500,
+        ["Debt Collector"] = 1200,
+        ["Legendary Tech"] = 5000 -- End-game SP
+    }
+    
+    local amount = rewards[questName] or 100
+    addSP(player, amount)
+    addStreetCred(player, amount * 0.1) -- SC also increases!
+end
+local function playSPOrmEffect(startPos)
+    local orb = Instance.new("Part")
+    orb.Shape = Enum.PartType.Ball
+    orb.Size = Vector3.new(0.5, 0.5, 0.5)
+    orb.Color = Color3.fromRGB(0, 255, 255) -- Cyan/Blue Plasma
+    orb.Material = Enum.Material.Neon
+    orb.Position = startPos
+    orb.Parent = workspace
+    
+    -- Tween it toward the player's camera or chest
+    local tween = TweenService:Create(orb, TweenInfo.new(1), {
+        Position = character.HumanoidRootPart.Position,
+        Transparency = 1
+    })
+    
+    tween:Play()
+    tween.Completed:Connect(function() orb:Destroy() end)
+end
