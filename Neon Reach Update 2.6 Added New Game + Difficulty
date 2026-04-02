@@ -1,0 +1,15 @@
+local function getNGPlusAIStats(enemyType)
+    local profile = {
+        BlockChance = 0.6,    -- 60% chance to block a combo
+        DodgeChance = 0.4,    -- 40% chance to slip a heavy hit
+        Aggression = 2.0,     -- Attacks twice as often
+        ArmorPlating = 500,   -- Extra flat damage reduction
+    }
+    
+    if isBoss then
+        profile.BlockChance = 0.8
+        profile.ArmorPlating = 2000
+    end
+    
+    return profile
+end
