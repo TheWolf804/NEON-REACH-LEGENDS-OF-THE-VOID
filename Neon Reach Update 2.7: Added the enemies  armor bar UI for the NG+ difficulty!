@@ -1,0 +1,35 @@
+-- Inside the Enemy Server Script
+local maxArmor = 500
+local currentArmor = 500
+local isBroken = false
+
+function takeDamage(amount, attackType)
+    if currentArmor > 0 then
+        -- Armor takes the hit instead of Health
+        -- Beast Style does 2x damage to Armor!
+        local multiplier = (attackType == "Beast") and 2 or 1
+        currentArmor = math.max(0, currentArmor - (amount * multiplier))
+        
+        updateArmorUI()
+        print("Armor Integrity: " .. currentArmor)
+        
+        -- The "Tank" Effect: Enemy does NOT play a hit animation
+        return false -- Signal: Do not stagger
+    else
+        -- Armor is gone, take real damage
+        humanoid:TakeDamage(amount)
+        if not isBroken then
+            triggerArmorBreak() 
+        end
+        return true -- Signal: Play stagger animation
+    end
+end
+
+function triggerArmorBreak()
+    isBroken = true
+    -- Play a "Glass Shattering" sound effect
+    -- Enemy enters a "Dazed" animation for 3 seconds
+    task.wait(5) 
+    currentArmor = maxArmor -- Armor resets after 5 seconds
+    isBroken = false
+end
