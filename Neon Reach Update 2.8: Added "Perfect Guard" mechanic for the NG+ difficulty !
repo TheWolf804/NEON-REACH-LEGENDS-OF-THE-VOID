@@ -1,0 +1,42 @@
+local isBlocking = false
+local lastBlockTime = 0
+local PERFECT_WINDOW = 0.15 -- The "Sweet Spot" in seconds
+
+function onBlockPressed()
+	isBlocking = true
+	lastBlockTime = tick() -- Record exactly when they pressed the button
+	playBlockAnimation()
+end
+
+function onHitReceived(attacker, damage, attackType)
+	local timeSinceBlock = tick() - lastBlockTime
+	
+	if isBlocking and timeSinceBlock <= PERFECT_WINDOW then
+		-- PERFECT GUARD TRIGGERED!
+		triggerPerfectGuard(attacker)
+		return 0 -- Take zero damage
+	elseif isBlocking then
+		-- Standard Block (Take 20% chip damage)
+		humanoid:TakeDamage(damage * 0.2)
+		return damage * 0.2
+	else
+		-- Full Damage
+		humanoid:TakeDamage(damage)
+		return damage
+	end
+end
+local function triggerPerfectGuard(attacker)
+	-- 1. Sound: A heavy "CLANG" mixed with a digital "ZAP"
+	soundService.PerfectGuardEffect:Play()
+	
+	-- 2. Visual: Hexagonal Shield Flare
+	local flare = game.ReplicatedStorage.Effects.PerfectFlare:Clone()
+	flare.Position = character.HumanoidRootPart.Position
+	flare.Parent = workspace
+	
+	-- 3. Enemy Stagger
+	local enemyHumanoid = attacker:FindFirstChild("Humanoid")
+	if enemyHumanoid then
+		playAnimation(attacker, "StaggerBackwards") -- Enemy is "Open"
+	end
+end
