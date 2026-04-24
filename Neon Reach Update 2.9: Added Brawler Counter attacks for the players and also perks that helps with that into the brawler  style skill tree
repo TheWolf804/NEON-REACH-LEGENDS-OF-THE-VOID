@@ -1,0 +1,16 @@
+local function triggerPerfectGuard(attacker)
+    -- Play the "Kinetic Blast" effect first
+    spawnPerfectGuardVisuals()
+    
+    -- Check which Brawler counter is unlocked
+    if player.LearnedSkills:FindFirstChild("Reactor_Break") then
+        playCounterAnimation("ReactorBreak") -- The "Legend" level counter
+        attacker.Humanoid:TakeDamage(500)
+        breakEnemyArmor(attacker) -- Instant armor break
+    elseif player.LearnedSkills:FindFirstChild("Gravity_Slam") then
+        playCounterAnimation("GravitySlam")
+        applyStun(attacker, 2.0)
+    else
+        playCounterAnimation("IronFist")
+    end
+end
