@@ -1,0 +1,77 @@
+-- BossController (ServerScript)
+local Vane = script.Parent
+local humanoid = Vane:WaitForChild("Humanoid")
+local armorBar = Vane:WaitForChild("ArmorBar") -- The custom UI
+
+local phases = {
+    [1] = {Name = "Rush", HPThreshold = 0.7},
+    [2] = {Name = "Beast", HPThreshold = 0.3},
+    [3] = {Name = "ExtremeHeat", HPThreshold = 0.05}
+}
+
+local currentPhase = 1
+
+local function updateBossPhase()
+    local hpPercent = humanoid.Health / humanoid.MaxHealth
+    
+    -- Check if we need to switch phase
+    if currentPhase < 3 and hpPercent <= phases[currentPhase + 1].HPThreshold then
+        currentPhase += 1
+        transitionToPhase(phases[currentPhase].Name)
+    end
+end
+
+function transitionToPhase(phaseName)
+    print("Vane is switching to: " .. phaseName)
+    
+    if phaseName == "Beast" then
+        -- Add 5000 Armor for Phase 2
+        Vane:SetAttribute("Armor", 5000)
+        Vane.Humanoid.WalkSpeed = 8 -- Slower, heavy hitter
+    elseif phaseName == "ExtremeHeat" then
+        -- Trigger the "White Dragon Aura" visual
+        Vane.Effects.WhitePlasma:Emit(100)
+        Vane.Humanoid.Damage = Vane.Humanoid.Damage * 1.5
+    end
+local function performBossAction(target)
+    local roll = math.random(1, 10)
+    
+    if currentPhase == 1 then -- Rush: High Dodge Chance
+        if roll <= 4 then 
+            triggerDodge("DashBack") 
+        else
+            attackTarget(target) 
+        end
+        
+    elseif currentPhase == 2 then -- Beast: High Block Chance
+        if roll <= 5 then
+            triggerBlock("HeavyStance")
+        else
+            performUnblockableSlam()
+        end
+        
+    elseif currentPhase == 3 then -- ExtremeHeat: Counter-Aggression
+        -- If player tries to hit him, he triggers his cinematic counter
+        if target.IsAttacking then
+            triggerCinematicCounter(target)
+        end
+    end
+end
+function transitionToPhase(phaseName)
+    -- Play a "Charge" sound
+    Vane.Sounds.PowerUp:Play()
+    
+    -- Knockback effect: Pushes player away
+    local explosion = Instance.new("Explosion")
+    explosion.BlastRadius = 15
+    explosion.BlastPressure = 5000
+    explosion.Position = Vane.HumanoidRootPart.Position
+    explosion.Parent = workspace
+    
+    -- Change his color/glow
+    Vane.Head.PointLight.Color = Color3.fromRGB(255, 255, 255)
+end
+
+end
+
+humanoid.HealthChanged:Connect(updateBossPhase)
