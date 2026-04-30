@@ -1,0 +1,13 @@
+local function completeGhostQuest(player)
+    -- 1. Reward Spirit Points
+    addSP(player, 5000) 
+    
+    -- 2. Reward Street Cred (Massive boost)
+    addStreetCred(player, 25) 
+    
+    -- 3. Reward Legendary Crafting Material
+    addItemToInventory(player, "Architects_Core", 1)
+    
+    -- 4. Cinematic Finish
+    remoteEvents.ShowSubstoryClear:FireClient(player, "The Ghost in the Machine")
+end
