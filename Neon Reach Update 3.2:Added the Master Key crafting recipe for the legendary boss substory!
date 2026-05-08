@@ -1,0 +1,41 @@
+["Reactor_Master_Key"] = {
+    Name = "The Void-Link Master Key",
+    Tier = 3, -- Requires "System Specialist" Brawler Node
+    RequiredSC = 20, -- You need some reputation to handle this tech
+    Ingredients = {
+        ["Frequency_Decoder"] = 3,    -- Drops from the 3 Corrupted Drones
+        ["Tier3_Component"] = 10,     -- Advanced Processors
+        ["Plasma_Regulator"] = 1,     -- Rare drop from Red Skull Elites
+        ["Stable_Isotope"] = 5        -- Found in the Engine Room debris
+    },
+    Description = "A complex bypass device. It hums with a frequency that matches the ship's reactor core."
+}
+local function attemptMasterKeyCraft(player)
+    local brawlerTier = player:GetAttribute("CraftingTier") or 1
+    
+    -- Veteran Check: Do they have the skill?
+    if brawlerTier < 3 then
+        -- Play a 'locked' sound and show a hint
+        notifyPlayer(player, "Your Brawler Engineering is too low to understand this circuit!")
+        return false
+    end
+
+    -- Check for the 3 Quest Decoders
+    local decoders = player.Inventory:GetAttribute("Frequency_Decoder") or 0
+    if decoders < 3 then
+        notifyPlayer(player, "You are missing pieces of the frequency signature.")
+        return false
+    end
+
+    -- If all checks pass, consume materials and grant the Key
+    if consumeMaterials(player, "Reactor_Master_Key") then
+        local key = Instance.new("StringValue")
+        key.Name = "MasterKey"
+        key.Value = "Vane_Access"
+        key.Parent = player.KeyItems
+        
+        -- Special "Item Get" UI for Legendary items
+        triggerLegendaryObtainEffect("Void-Link Master Key")
+        return true
+    end
+end
