@@ -1,0 +1,39 @@
+-- DroneAI (ServerScript)
+local drone = script.Parent
+local states = {"Idle", "Attacking", "Blinking"}
+local currentState = "Idle"
+
+function onAttacked()
+    -- Veteran Logic: If hit more than 3 times, Force Blink
+    local hitCount = drone:GetAttribute("RecentHits") or 0
+    drone:SetAttribute("RecentHits", hitCount + 1)
+    
+    if hitCount >= 3 then
+        performBlink()
+        drone:SetAttribute("RecentHits", 0)
+    end
+end
+
+function performBlink()
+    -- Glitch Visuals
+    playGlitchEffect(drone.Position)
+    
+    -- Teleport to a random spot behind the player
+    local target = findNearestPlayer()
+    local offset = target.Character.HumanoidRootPart.CFrame.LookVector * -10
+    drone.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + offset
+    
+    playGlitchEffect(drone.Position)
+end
+function onDeath()
+    local substoryActive = checkQuest("Ghost_In_Machine")
+    
+    if substoryActive then
+        local drop = game.ReplicatedStorage.Items.Frequency_Decoder:Clone()
+        drop.CFrame = drone.HumanoidRootPart.CFrame
+        drop.Parent = workspace
+        
+        -- Add a 'Beam of Light' so the player doesn't miss it
+        addLootBeam(drop, "Blue") 
+    end
+end
