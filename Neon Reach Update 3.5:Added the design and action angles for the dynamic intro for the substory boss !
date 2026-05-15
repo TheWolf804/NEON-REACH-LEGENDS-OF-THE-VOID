@@ -1,0 +1,30 @@
+local function playVaneIntro()
+    local camera = workspace.CurrentCamera
+    camera.CameraType = Enum.CameraType.Scriptable
+    
+    -- 1. Wide Shot: The scale of the Reactor
+    camera.CFrame = CFrame.new(workspace.Reactor.CamPos1.Position, workspace.Reactor.Core.Position)
+    task.wait(2)
+    
+    -- 2. Zoom to Vane: High above
+    camera.CFrame = CFrame.new(workspace.Reactor.CamPos2.Position, Vane.Head.Position)
+    task.wait(1.5)
+    
+    -- 3. The Drop: Camera follows Vane as he falls
+    TweenService:Create(camera, TweenInfo.new(1.5, Enum.EasingStyle.Sine), {
+        CFrame = CFrame.new(workspace.Reactor.CamPos3.Position, Vane.HumanoidRootPart.Position)
+    }):Play()
+    
+    task.wait(2)
+    
+    -- 4. Close Up: Vane stands up and removes his hood/mask
+    camera.CFrame = CFrame.new(Vane.Head.Position + (Vane.Head.CFrame.LookVector * 5), Vane.Head.Position)
+    
+    -- TRIGGER THE TITLE CARD HERE
+    displayBossTitleCard("VANE", "The Void-Architect", "Clan Captain of the Engine Room")
+    
+    task.wait(3)
+    
+    -- 5. Return to Player: Fight Begins!
+    camera.CameraType = Enum.CameraType.Custom
+end
