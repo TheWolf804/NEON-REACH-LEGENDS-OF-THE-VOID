@@ -1,0 +1,64 @@
+-- Inside Vane's Combat Server Script
+local isShattered = false
+
+function checkArmorBreak()
+	local currentArmor = script.Parent:GetAttribute("Armor") or 0
+	
+	if currentArmor <= 0 and not isShattered then
+		isShattered = true
+		triggerArmorShatterSequence()
+	end
+end
+
+function triggerArmorShatterSequence()
+	-- 1. Fire the visual explosion to all clients
+	remoteEvents.ArmorShatterVisuals:FireAllClients(script.Parent.HumanoidRootPart.Position)
+	
+	-- 2. Force Vane into a kneeling/dazed animation
+	local animator = script.Parent.Humanoid:WaitForChild("Animator")
+	local shatterAnim = animator:LoadAnimation(script.Parent.Animations.GuardBreakDaze)
+	shatterAnim:Play()
+	
+	-- 3. Mechanical Debuff
+	script.Parent.Humanoid.WalkSpeed = 0
+	script.Parent:SetAttribute("IsVulnerable", true)
+	
+	-- 4. The 5-Second Window
+	task.wait(5)
+	
+	-- 5. Recovery: Vane recovers with an armored shockwave
+	shatterAnim:Stop()
+	script.Parent:SetAttribute("IsVulnerable", false)
+	script.Parent:SetAttribute("Armor", 5000) -- Regenerate armor for next phase
+	isShattered = false
+  -- LocalScript inside StarterPlayerScripts
+remoteEvents.ArmorShatterVisuals.OnClientEvent:Connect(function(position)
+	-- 1. Camera Shake: Heavy impact
+	local camera = workspace.CurrentCamera
+	shakeCamera(0.5, 15) -- intensity, duration
+	
+	-- 2. Time Freeze (The Yakuza Feel)
+	-- Briefly slow down time to 0.1 speed for 0.15 seconds to emphasize the shatter
+	game:GetService("TweenService"):Create(game:GetService("Lighting"), TweenInfo.new(0.05), {TimeOfDay = "12:00:00"}):Play() -- Placeholder for engine level tick manipulation if using a custom time system, otherwise:
+	-- Note: Local timescale or hit-stop effect via anchoring the boss and player for 0.15s
+	
+	-- 3. Emit Hexagonal Glass Particles
+	local attachment = Instance.new("Attachment", workspace.Terrain)
+	attachment.Position = position
+	
+	local particleEmitter = game.ReplicatedStorage.Effects.GlassFragments:Clone()
+	particleEmitter.Parent = attachment
+	particleEmitter:Emit(75)
+	
+	-- 4. Sound Effect
+	local shatterSound = game.ReplicatedStorage.Sounds.ShieldShatter:Clone()
+	shatterSound.Parent = attachment
+	shatterSound:Play()
+	
+	-- Cleanup
+	task.delay(2, function() attachment:Destroy() end)
+end)
+	
+	-- Play a recovery animation where he blasts the player away
+	performRecoveryBlast()
+end
