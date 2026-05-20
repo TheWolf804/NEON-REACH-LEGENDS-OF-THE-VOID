@@ -1,0 +1,73 @@
+-- Inside Vane's Combat Server Script
+function performRecoveryBlast()
+    local rootPart = script.Parent.HumanoidRootPart
+    local humanoid = script.Parent.Humanoid
+    
+    -- 1. Setup Invincibility & Warning State
+    script.Parent:SetAttribute("IsInvincible", true)
+    remoteEvents.ShowBlastWarning:FireAllClients(rootPart.Position, 12) -- 12-foot radius
+    
+    -- Play the "Charging" Animation (Vane pulls the staff back, kneeling)
+    local animator = humanoid:WaitForChild("Animator")
+    local chargeAnim = animator:LoadAnimation(script.Parent.Animations.RecoveryCharge)
+    chargeAnim:Play()
+    
+    task.wait(1.0) -- The anticipation window for the player to back away
+    
+    -- 2. THE DETONATION
+    chargeAnim:Stop()
+    local blastAnim = animator:LoadAnimation(script.Parent.Animations.RecoveryRelease)
+    blastAnim:Play()
+    
+    -- Remote effect for massive shockwave
+    remoteEvents.PlayBlastVisuals:FireAllClients(rootPart.Position)
+    
+    -- 3. Hit Detection (Radius Check)
+    local BLAST_RADIUS = 12
+    local BLAST_DAMAGE = 150 -- Dangerous on NG+ Legend!
+    
+    for _, player in pairs(game.Players:GetPlayers()) do
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local pRoot = player.Character.HumanoidRootPart
+            local distance = (rootPart.Position - pRoot.Position).Magnitude
+            
+            if distance <= BLAST_RADIUS then
+                -- Check if player is actively using a Perfect Dodge i-frame
+                local isDodging = player.Character:GetAttribute("IsPerfectDodging")
+                
+                if not isDodging then
+                    -- Deal Damage & Drain Heat
+                    player.Character.Humanoid:TakeDamage(BLAST_DAMAGE)
+                    local currentHeat = player:GetAttribute("Heat") or 0
+                    player:SetAttribute("Heat", math.max(0, currentHeat - 50))
+                    
+                    -- Apply Heavy Physics Knockback
+                    applyKnockback(player.Character, rootPart.Position)
+                end
+            end
+        end
+    end
+    
+    -- 4. Clean Up & Reset Boss State
+    script.Parent:SetAttribute("IsInvincible", false)
+    script.Parent:SetAttribute("Armor", 5000) -- Armor fully restored!
+    print("Vane has recovered and restored his Void Armor.")
+end
+
+function applyKnockback(character, originPos)
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root then
+        local direction = (root.Position - originPos).Unit
+        direction = Vector3.new(direction.X, 0.5, direction.Z).Unit -- Push up and out
+        
+        local velocity = Instance.new("LinearVelocity")
+        velocity.MaxForce = 50000
+        velocity.VectorVelocity = direction * 65 -- High speed launch
+        velocity.Attachment0 = root:FindFirstChildOfClass("Attachment") or Instance.new("Attachment", root)
+        velocity.Parent = root
+        
+        game.Debris:AddItem(velocity, 0.25)
+        -- Trigger "Fallen Down" state for the player character
+        triggerPlayerRagdoll(character, 1.5) 
+    end
+end
