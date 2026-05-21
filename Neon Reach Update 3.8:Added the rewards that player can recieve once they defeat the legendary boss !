@@ -1,0 +1,30 @@
+-- LootDropManager (ServerScript inside Vane)
+local function dropLegendaryLoot(player, killPosition)
+	-- Define the Legend Loot Table
+	local guaranteedDrops = {
+		{ID = "Singularity_Core", Amount = 1},    -- Weapon part for Tier 6 crafting
+		{ID = "Void_Matter", Amount = 3},         -- Elite tier material for NG+ upgrades
+		{ID = "Architects_Blueprints", Amount = 1} -- Unlocks the "Legendary" Workbench options
+	}
+	
+	local rareDrops = {
+		{ID = "Limit_Break_Chip", Chance = 0.3},   -- 30% chance to drop an infinite node key
+		{ID = "Void_Walker_Cloak", Chance = 0.15}  -- 15% chance for the ultimate cosmetic/armor piece
+	}
+	
+	-- 1. Spawn Guaranteed Physical Items with Loot Beams
+	for _, item in pairs(guaranteedDrops) do
+		spawnPhysicalLoot(item.ID, item.Amount, killPosition)
+	end
+	
+	-- 2. Roll for Rare Drops
+	for _, item in pairs(rareDrops) do
+		if math.random() <= item.Chance then
+			spawnPhysicalLoot(item.ID, 1, killPosition)
+		end
+	end
+	
+	-- 3. Direct Account Rewards
+	addSP(player, 25000) -- Massive SP dump for the Infinite Nodes
+	addStreetCred(player, 100)
+end
