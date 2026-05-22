@@ -1,0 +1,15 @@
+-- Sector 0 Enemy Variant Database
+local Sector0Enemies = {
+    ["Cyber_Grappler"] = {
+        StyleCounter = "Rush", -- Immune to light Rush spam
+        SpecialMove = "KineticSuplex", 
+        ArmorRating = 3500,    -- Thick white armor bar
+        Behavior = "Waits for player to finish a combo, then blocks and attempts a command grab."
+    },
+    ["Neon_Street_Slicer"] = {
+        StyleCounter = "Beast", -- Too fast for slow Beast moves
+        SpecialMove = "PlasmaDashStrike",
+        DodgeChance = 0.55,    -- 55% chance to slip heavy attacks
+        Behavior = "Flips off shipping containers to execute airborne, unblockable purple attacks."
+    }
+}
