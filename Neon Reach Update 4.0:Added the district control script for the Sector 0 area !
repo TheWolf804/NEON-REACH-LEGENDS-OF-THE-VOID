@@ -1,0 +1,73 @@
+local DistrictDatabase = {
+    ["HydroAlley"] = {
+        Name = "Hydro-Ponics Alley",
+        Control = 100, -- Starts completely held by enemies
+        ThreatLevel = "High",
+        ActiveModifiers = {"FloodedFloors", "ElectricalHazards"},
+        MinStreetCredRequired = 50
+    },
+    ["ScrapYard"] = {
+        Name = "The Scrap Yard Arena",
+        Control = 100,
+        ThreatLevel = "Very High",
+        ActiveModifiers = {"HeavyPropsOnly"},
+        MinStreetCredRequired = 55
+    },
+    ["Promenade"] = {
+        Name = "The Smuggler's Promenade",
+        Control = 100,
+        ThreatLevel = "Extreme",
+        ActiveModifiers = {"RooftopSnipers", "ReinforcedArmor"},
+        MinStreetCredRequired = 60
+    }
+}
+return DistrictDatabase
+-- TurfWarManager (Server Script)
+local RepStorage = game:GetService("ReplicatedStorage")
+local Districts = require(script.DistrictDatabase)
+local RemoteEvents = RepStorage:WaitForChild("NetworkEvents")
+
+function adjustDistrictControl(player, districtID, amount)
+    local district = Districts[districtID]
+    if not district then return end
+    
+    -- Subtract from syndicate control
+    district.Control = math.max(0, district.Control - amount)
+    
+    -- Sync update to the player's HUD
+    RemoteEvents.UpdateDistrictUI:FireClient(player, districtID, district.Control)
+    
+    -- Check if the District is ripe for a Lieutenant Showdown
+    if district.Control <= 40 and not district.LieutenantSpawned and district.Control > 0 then
+        district.LieutenantSpawned = true
+        spawnDistrictLieutenant(districtID)
+        notifyPlayer(player, "ALERT: The Syndicate Lieutenant of " .. district.Name .. " has stepped out to crush you!")
+    elseif district.Control == 0 then
+        lockDistrictLiberation(player, districtID)
+    end
+end
+
+function lockDistrictLiberation(player, districtID)
+    local district = Districts[districtID]
+    notifyPlayer(player, "DISTRICT SECURED: " .. district.Name .. " is now free from Syndicate hands.")
+    
+    -- Reward the player with high-tier crafting scrap
+    player.Inventory:SetAttribute("Void_Matter", (player.Inventory:GetAttribute("Void_Matter") or 0) + 2)
+-- Run this on a background loop while player is in Sector 0
+local function randomRetaliationCheck(player)
+    for districtID, data in pairs(Districts) do
+        if data.Control < 100 and data.Control > 0 then
+            -- 25% chance of a retaliation strike if not fully secured
+            if math.random() <= 0.25 then
+                data.Control = math.min(100, data.Control + 20) -- Syndicate takes back 20%
+                RemoteEvents.UpdateDistrictUI:FireClient(player, districtID, data.Control)
+                
+                -- Trigger emergency notification
+                triggerEmergencyUrgentSiren(player, data.Name)
+                break
+            end
+        end
+    end
+end
+    player:SetAttribute("StreetCred", (player:GetAttribute("StreetCred") or 0) + 15)
+end
