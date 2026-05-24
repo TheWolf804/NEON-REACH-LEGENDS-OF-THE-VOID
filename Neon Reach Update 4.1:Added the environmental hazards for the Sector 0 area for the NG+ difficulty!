@@ -1,0 +1,57 @@
+-- VolatileConduitScript (Server-Side)
+local pipe = script.Parent
+local hp = 50 -- Can withstand minor clips, but shatters on heavy hits
+local isRuptured = false
+
+pipe.Touched:Connect(function(hit)
+    if isRuptured then return end
+    
+    -- Check if hit by a heavy attack hitbox or a thrown ragdoll enemy
+    if hit:GetAttribute("IsHeavyAttack") or hit.Parent:FindFirstChild("Humanoid"):GetAttribute("IsRagdoll") then
+        isRuptured = true
+        rupturePipe()
+    end
+end)
+
+function rupturePipe()
+    pipe.PlasmaLeakEmitter.Enabled = true
+    pipe.HissSound:Play()
+    
+    -- Hurt zone logic
+    local region = Region3.new(pipe.Position - Vector3.new(5,5,5), pipe.Position + Vector3.new(5,5,5))
+    for i = 1, 8 do -- Sprays for 4 seconds (0.5s ticks)
+        task.wait(0.5)
+        local parts = workspace:FindPartsInRegion3(region, nil, 100)
+        for _, part in pairs(parts) do
+            local hum = part.Parent:FindFirstChild("Humanoid")
+            if hum and not part.Parent:GetAttribute("IsPlasmaImmune") then
+                hum:TakeDamage(25) -- Severe ticking burn
+                part.Parent:SetAttribute("ThermalLockout", true) -- Disables Perfect Guard
+            end
+        end
+    end
+    
+    pipe.PlasmaLeakEmitter.Enabled = false
+    task.wait(10) -- Cooldown before pipe self-seals
+    isRuptured = false
+end
+-- SpotlightDetection (Client/Server hybrid)
+local light = script.Parent
+local isScanning = true
+
+task.spawn(function()
+    while isScanning do
+        -- Sweep light back and forth across the market floor
+        tweenSpotlightMovement()
+        task.wait(4)
+    end
+end)
+
+light.Cone.Touched:Connect(function(hit)
+    local player = game.Players:GetPlayerFromCharacter(hit.Parent)
+    if player and not player:GetAttribute("IsHidden") then
+        -- ALERT THE SNIPERS
+        triggerSniperTargeting(player)
+        light.Cone.Color = Color3.fromRGB(255, 0, 0) -- Turn blood red
+    end
+end)
