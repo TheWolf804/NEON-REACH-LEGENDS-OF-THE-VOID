@@ -1,0 +1,42 @@
+-- CidBossAI (ServerScript)
+local Cid = script.Parent
+local humanoid = Cid.Humanoid
+local currentTarget = nil
+
+local function executeFloorSurge()
+    -- 1. Telegraph the attack (Aura effect)
+    Cid.ArcBatons.ChargeParticle:Emit(50)
+    Cid.Animations.FloorSlam:Play()
+    
+    task.wait(0.6) -- Veteran reaction window
+    
+    -- 2. Force-activate the Hydro-Alley water hazard
+    local waterHazard = workspace.Sector0.HydroAlley.FloodedFloor
+    waterHazard:SetAttribute("ForceSurge", true)
+    
+    -- Cid laughs through the intercom
+    Cid.Sounds.Laugh:Play()
+    
+    task.wait(2.0)
+    waterHazard:SetAttribute("ForceSurge", false)
+end
+
+function thinkLoop()
+    while humanoid.Health > 0 do
+        task.wait(math.random(3, 5))
+        currentTarget = findNearestPlayer()
+        
+        if currentTarget then
+            local hpPercent = humanoid.Health / humanoid.MaxHealth
+            
+            -- Phase 2 Overdrive: More frequent floor surges
+            if hpPercent <= 0.50 and math.random() <= 0.60 then
+                executeFloorSurge()
+            elseif math.random() <= 0.30 then
+                performLightningDash(currentTarget)
+            end
+        end
+    end
+end
+
+task.spawn(thinkLoop)
