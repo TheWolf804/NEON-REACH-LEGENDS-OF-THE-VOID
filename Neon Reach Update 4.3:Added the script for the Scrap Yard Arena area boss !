@@ -1,0 +1,51 @@
+-- MoxBossAI (ServerScript)
+local Mox = script.Parent
+local humanoid = Mox.Humanoid
+local rootPart = Mox.HumanoidRootPart
+
+local function triggerCraneDrop(targetChar)
+    Mox.Animations.RemoteActivate:Play()
+    Mox.Sounds.ButtonPress:Play()
+    
+    -- Target the player's current position for a debris drop
+    local targetPos = targetChar.HumanoidRootPart.Position
+    remoteEvents.ShowCraneTargetMarker:FireAllClients(targetPos, 3) -- 3 second fuse
+    
+    task.wait(3.0)
+    
+    -- Drop the heavy scrap plate
+    local scrapPlate = game.ReplicatedStorage.Props.ScrapPlate:Clone()
+    scrapPlate.Position = targetPos + Vector3.new(0, 40, 0) -- Drop from ceiling
+    scrapPlate.Parent = workspace
+    
+    -- Enable heavy crushing damage on the plate
+    scrapPlate.Touched:Connect(function(hit)
+        local hum = hit.Parent:FindFirstChild("Humanoid")
+        if hum and hit.Parent ~= Mox then
+            hum:TakeDamage(200) -- Fatal if not dodged or Perfect Guarded
+            triggerPlayerRagdoll(hit.Parent, 2)
+        end
+    end)
+end
+
+function moxCombatLoop()
+    while humanoid.Health > 0 do
+        task.wait(math.random(4, 7))
+        local target = findNearestPlayer()
+        
+        if target then
+            local distance = (rootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
+            
+            if distance > 25 then
+                -- Player is keeping distance, drop a crane plate on them
+                triggerCraneDrop(target.Character)
+            else
+                -- Close quarters: Execute the Unblockable Saw Spin
+                Mox.Animations.SawSpin:Play()
+                task.wait(1.5)
+            end
+        end
+    end
+end
+
+task.spawn(moxCombatLoop)
