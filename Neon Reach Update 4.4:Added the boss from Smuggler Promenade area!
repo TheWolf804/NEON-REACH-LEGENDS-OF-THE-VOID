@@ -1,0 +1,42 @@
+-- VesperBossAI (ServerScript)
+local Vane = script.Parent
+local humanoid = Vane.Humanoid
+local rootPart = Vane.HumanoidRootPart
+
+local function executeHolographicCloak()
+    -- 1. Vanish into stealth
+    Vane:SetAttribute("IsHidden", true)
+    remoteEvents.PlayCloakVisuals:FireAllClients(rootPart.Position)
+    
+    -- Make the actual character model transparent
+    for _, part in pairs(Vane:GetChildren()) do
+        if part:IsA("BasePart") then part.Transparency = 1 end
+    end
+    
+    -- 2. Spawn 3 fake Holographic Decoys
+    for i = 1, 3 do
+        local decoy = game.ReplicatedStorage.Entities.VesperDecoy:Clone()
+        decoy.CFrame = rootPart.CFrame + Vector3.new(math.random(-20, 20), 0, math.random(-20, 20))
+        decoy.Parent = workspace.Arena
+    end
+    
+    task.wait(4.0) -- Sneak up window
+    
+    -- 3. Ambush Strike from behind the player
+    local target = findNearestPlayer()
+    if target then
+        local targetRoot = target.Character.HumanoidRootPart
+        rootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 5) -- Teleport directly behind
+        
+        -- Reveal and strike with an unblockable Purple Whiplash
+        revealVesper()
+        Vane.Animations.AmbushStrike:Play()
+    end
+end
+
+function revealVesper()
+    Vane:SetAttribute("IsHidden", false)
+    for _, part in pairs(Vane:GetChildren()) do
+        if part:IsA("BasePart") then part.Transparency = 0 end
+    end
+end
