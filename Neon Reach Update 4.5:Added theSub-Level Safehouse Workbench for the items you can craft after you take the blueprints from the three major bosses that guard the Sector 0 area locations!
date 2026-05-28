@@ -1,0 +1,69 @@
+local Tier6Blueprints = {
+    ["Singular_Edge_Blade"] = {
+        Name = "The Singular Edge",
+        Type = "Weapon",
+        RequiredWorkbench = "SubLevel_Safehouse",
+        Ingredients = {
+            ["Singularity_Core"] = 1,      -- From Vane
+            ["Titans_Drive_Shaft"] = 1,    -- From Mox
+            ["Void_Matter"] = 5            -- Elite Zone Material
+        },
+        Perk = "Gravity_Well",
+        Description = "A blade that bends space-time. Combo finishers pull enemies into a tight vortex."
+    },
+    ["Ghost_Weave_Shroud"] = {
+        Name = "Ghost-Walker's Shroud",
+        Type = "Armor",
+        RequiredWorkbench = "SubLevel_Safehouse",
+        Ingredients = {
+            ["Ghost_Weave_Filament"] = 1,  -- From Vesper
+            ["Void_Matter"] = 3,
+            ["Tier3_Component"] = 25       -- Base game rare parts
+        },
+        Perk = "Architects_Reflex",
+        Description = "Holographic trench coat. Expands Perfect Guard frames and restores 10% armor on parry."
+    }
+}
+-- SafehouseWorkbench (Server Script)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RemoteEvents = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local WORKBENCH_ID = "SubLevel_Safehouse"
+
+RemoteEvents.TriggerTier6Craft.OnServerEvent:Connect(function(player, blueprintID)
+    -- 1. Security Check: Has the player actually unlocked the Safehouse?
+    if not player:GetAttribute("Sector0_FullyLiberated") then
+        RemoteEvents.NotifyPlayer:FireClient(player, "SYSTEM LOCK: Clear all 3 Syndicate Districts first!")
+        return
+    end
+    
+    local blueprint = Tier6Blueprints[blueprintID]
+    if not blueprint then return end
+    
+    -- 2. Material Verification
+    local hasMaterials = true
+    for matID, requiredAmount in pairs(blueprint.Ingredients) do
+        local currentAmount = player.Inventory:GetAttribute(matID) or 0
+        if currentAmount < requiredAmount then
+            hasMaterials = false
+            break
+        end
+    end
+    
+    if not hasMaterials then
+        RemoteEvents.NotifyPlayer:FireClient(player, "ERROR: Insufficient Legendary Components.")
+        return
+    end
+    
+    -- 3. Consume Materials & Grant Item
+    for matID, requiredAmount in pairs(blueprint.Ingredients) do
+        local currentAmount = player.Inventory:GetAttribute(matID)
+        player.Inventory:SetAttribute(matID, currentAmount - requiredAmount)
+    end
+    
+    -- Add the Tier 6 Legendary Item to Player Account
+    grantLegendaryItem(player, blueprintID)
+    
+    -- 4. Play Dramatic Crafting Visuals to the Client
+    RemoteEvents.PlayCraftingCinematic:FireClient(player, blueprint.Name)
+end)
