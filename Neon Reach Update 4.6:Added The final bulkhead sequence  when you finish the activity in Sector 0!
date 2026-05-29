@@ -1,0 +1,45 @@
+-- ArgoBulkheadOverride (Server Script)
+local bulkhead = script.Parent
+local remoteEvents = game.ReplicatedStorage:WaitForChild("NetworkEvents")
+local isBreached = false
+
+function onOverrideAttempt(player)
+    if isBreached then return end
+    
+    -- Verification: Does the player have the legendary Tier 6 weapon equipped?
+    local character = player.Character
+    local equippedWeapon = character:FindFirstChild("TheSingularEdge") or character:FindFirstChild("TitanFists")
+    
+    if not equippedWeapon then
+        remoteEvents.NotifyPlayer:FireClient(player, "SYSTEM LOCK: Standard weaponry cannot pierce Argo-Class plating.")
+        bulkhead.Sounds.ErrorBuzzer:Play()
+        return
+    end
+    
+    isBreached = true
+    executeBreachSequence(player, equippedWeapon)
+end
+
+function executeBreachSequence(player, weapon)
+    -- Freeze player for the cinematic showcase
+    local root = player.Character.HumanoidRootPart
+    root.Anchored = true
+    
+    -- Tell all clients to render the intense spatial gravity distortion
+    remoteEvents.PlayBulkheadDistortion:FireAllClients(bulkhead.CenterSeal.Position)
+    task.wait(2.5) -- Time for the distortion to peak and implode
+    
+    -- Physically open the heavy bulkheads
+    bulkhead.Sounds.ExplosionCrack:Play()
+    bulkhead.Sounds.HydraulicWhine:Play()
+    
+    -- Animate door halves moving away
+    animateBulkheadSlides()
+    
+    task.wait(1.5)
+    root.Anchored = false
+    
+    -- Progress Objective
+    player:SetAttribute("Sector0_Completed", true)
+    remoteEvents.UpdateObjectiveUI:FireClient(player, "THE FINAL ASCENT: Take the elevator to the Executive Bridge.")
+end
