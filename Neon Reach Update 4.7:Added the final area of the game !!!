@@ -1,0 +1,45 @@
+-- Executive Bridge Enemy Profile
+local ExecutiveGuard = {
+    ["Aegis_Director"] = {
+        Weapon = "Monofilament Energy Shield",
+        StyleCounter = "Beast Style", -- Standard light strikes are 100% deflected
+        Mechanic = "Perfect Guard Parry",
+        Behavior = "Maintains an absolute unbreakable forward guard. You must time a Perfect Guard against his shield-bash to throw him off balance and expose his core."
+    },
+    ["Quantum_Infiltrator"] = {
+        Weapon = "Twin Phase-Blades",
+        StyleCounter = "Rush Style", -- Too fast for Brawler parries
+        Mechanic = "Perfect Dodge Multi-Counter",
+        Behavior = "Constantly shifts out of sync with reality, leaving delayed afterimages. Requires you to hit a Perfect Dodge on the third phantom strike to pin her down."
+    }
+}
+-- ZenithSpireEncounter (Server Script)
+local bridge = script.Parent
+local remoteEvents = game.ReplicatedStorage:WaitForChild("NetworkEvents")
+local bossSpawned = false
+
+function onVanguardDefeated(player)
+    if bossSpawned then return end
+    bossSpawned = true
+    
+    -- 1. Initiating the Lockdown Sequence
+    player.Character.HumanoidRootPart.Anchored = true
+    remoteEvents.SetBridgeAmbiance:FireAllClients("BossPhase")
+    
+    -- 2. Heavy mechanical shifting sounds
+    bridge.Sounds.ServerRetraction:Play()
+    bridge.Sounds.PillarLock:Play()
+    
+    task.wait(3.0) -- Let the room completely flatten out
+    
+    -- 3. The Panoramic Reveal
+    -- The massive blast shutters retract, revealing a massive collapsing star outside
+    animateBlastShuttersOpen()
+    bridge.Sounds.ShutterHiss:Play()
+    
+    task.wait(2.0)
+    
+    -- 4. Release player and begin the final dialogue trigger
+    player.Character.HumanoidRootPart.Anchored = false
+    triggerFinalBossIntro(player)
+end
