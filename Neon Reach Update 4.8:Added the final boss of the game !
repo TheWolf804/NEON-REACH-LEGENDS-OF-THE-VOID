@@ -1,0 +1,23 @@
+-- ChairmanPhase2Gravity (Server Script)
+local boss = script.Parent
+local remoteEvents = game.ReplicatedStorage:WaitForChild("NetworkEvents")
+
+function initiateGravityCollapse()
+    boss.Humanoid.WalkSpeed = 28 -- Speed increases drastically
+    boss.Animations.FloatingStance:Play()
+    
+    -- Alter workspace physics dynamically for all players in the room
+    workspace.Gravity = 9.81 * 0.25 -- Drop gravity to 25% (Simulating Zero-G)
+    remoteEvents.ToggleZeroGVisuals:FireAllClients(true)
+    
+    -- Boss now uses an automated tracking Dash Strike
+    task.spawn(function()
+        while boss.Humanoid.Health > (boss.Humanoid.MaxHealth * 0.3) do
+            task.wait(math.random(3, 5))
+            local target = findNearestPlayer()
+            if target then
+                executeVoidBlinkStrike(target.Character)
+            end
+        end
+    end)
+end
