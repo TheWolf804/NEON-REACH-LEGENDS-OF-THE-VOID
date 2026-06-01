@@ -1,0 +1,16 @@
+-- PostGameProgressionManager (Server Script)
+local PlayerData = {}
+
+function PlayerData:RegisterWorldReset(player)
+    local currentResets = player:GetAttribute("WorldResetCount") or 0
+    player:SetAttribute("WorldResetCount", currentResets + 1)
+    
+    -- Dynamically scale world enemy stats globally
+    local scalingFactor = 1 + (player:GetAttribute("WorldResetCount") * 0.25) -- +25% difficulty per reset
+    
+    workspace:SetAttribute("GlobalEnemyDamageScale", scalingFactor)
+    workspace:SetAttribute("GlobalEnemyHealthScale", scalingFactor)
+    
+    -- Reward the player with the prestigious prestige badge
+    player.PlayerGui.HUD.Notification:FireClient(player, "WORLD RE-IGNITED: Cycle " .. tostring(currentResets + 1))
+end
