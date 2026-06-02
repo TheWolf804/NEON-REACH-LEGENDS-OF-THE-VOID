@@ -1,0 +1,166 @@
+-- StarterPlayer -> StarterPlayerScripts -> LocalCombatController
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local CombatController = {
+	CurrentStyle = "Brawler",
+	CanAttack = true,
+	IsGuarding = false,
+	ComboIndex = 1,
+	LastAttackTime = 0,
+	COMBO_RESET_TIME = 1.2
+}
+
+local StyleProfiles = {
+	["Brawler"] = { Speed = 16, AttackDamage = 25, AttackCooldown = 0.4 },
+	["Rush"]    = { Speed = 24, AttackDamage = 12, AttackCooldown = 0.25 },
+	["Beast"]   = { Speed = 11, AttackDamage = 50, AttackCooldown = 0.7 }
+}
+
+function CombatController:Initialize()
+	-- Style Swapping Inputs (1, 2, 3 Keys)
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		
+		if input.KeyCode == Enum.KeyCode.One then
+			self:SwitchStyle("Brawler")
+		elseif input.KeyCode == Enum.KeyCode.Two then
+			self:SwitchStyle("Rush")
+		elseif input.KeyCode == Enum.KeyCode.Three then
+			self:SwitchStyle("Beast")
+		-- Attack Input (Left Click)
+		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:ExecuteAttack()
+		-- Guard Input (Hold Right Click)
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+			self:SetGuardState(true)
+		end
+	end)
+	
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			self:SetGuardState(false)
+		end
+	end)
+end
+
+function CombatController:SwitchStyle(styleName)
+	if self.CurrentStyle == styleName then return end
+	self.CurrentStyle = styleName
+	
+	local humanoid = Character:WaitForChild("Humanoid")
+	humanoid.WalkSpeed = StyleProfiles[styleName].Speed
+	
+	-- Notify server of style synchronization
+	Network.SyncStyle:FireServer(styleName)
+	print("Switched combat profile to: " .. styleName)
+end
+
+function CombatController:ExecuteAttack()
+	if not self.CanAttack or self.IsGuarding then return end
+	
+	local now = os.clock()
+	if now - self.LastAttackTime > self.COMBO_RESET_TIME then
+		self.ComboIndex = 1
+	end
+	
+	self.CanAttack = false
+	self.LastAttackTime = now
+	
+	-- Fire to server to calculate spatial hitboxes
+	Network.SubmitAttack:FireServer(self.CurrentStyle, self.ComboIndex)
+	
+	-- Advance combo tracking locally
+	self.ComboIndex = (self.ComboIndex % 4) + 1
+	
+	task.wait(StyleProfiles[self.CurrentStyle].AttackCooldown)
+	self.CanAttack = true
+end
+
+function CombatController:SetGuardState(state)
+	self.IsGuarding = state
+	Network.SyncGuard:FireServer(state)
+-- ServerScriptService -> ServerCombatValidator
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+-- State tracking dictionary for active players
+local PlayerCombatStates = {}
+
+Network.SyncStyle.OnServerEvent:Connect(function(player, styleName)
+	if not PlayerCombatStates[player] then PlayerCombatStates[player] = {} end
+	PlayerCombatStates[player].Style = styleName
+end)
+
+Network.SyncGuard.OnServerEvent:Connect(function(player, isGuarding)
+	if not PlayerCombatStates[player] then PlayerCombatStates[player] = {} end
+	
+	local state = PlayerCombatStates[player]
+	state.IsGuarding = isGuarding
+	
+	if isGuarding then
+		state.GuardStartTime = os.clock() -- Timestamp used to calculate parry frames
+		player.Character:SetAttribute("IsGuarding", true)
+	else
+		state.GuardStartTime = nil
+		player.Character:SetAttribute("IsGuarding", false)
+	end
+end)
+
+-- Authoritative Damage Processor (Called by Enemy AI Hitboxes)
+function ProcessIncomingDamage(targetPlayer, rawDamage, attackerPosition)
+	local character = targetPlayer.Character
+	if not character then return end
+	
+	local state = PlayerCombatStates[targetPlayer] or { IsGuarding = false }
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	
+	if state.IsGuarding and state.GuardStartTime then
+		local timeSpentGuarding = os.clock() - state.GuardStartTime
+		
+		-- PERFECT GUARD WINDOW: Under 0.12 seconds (7 frames at 60Hz)
+		if timeSpentGuarding <= 0.12 then
+			TriggerPerfectGuard(targetPlayer, character, attackerPosition)
+			return
+		else
+			-- Standard Guard: Absorb 75% of damage, drain Heat instead
+			local mitigatedDamage = rawDamage * 0.25
+			humanoid:TakeDamage(mitigatedDamage)
+			
+			local heat = targetPlayer:GetAttribute("Heat") or 0
+			targetPlayer:SetAttribute("Heat", math.max(0, heat - 15))
+			
+			Network.PlayBlockEffect:FireAllClients(character.HumanoidRootPart.Position, "Standard")
+			return
+		end
+	end
+	
+	-- Unprotected Hit
+	humanoid:TakeDamage(rawDamage)
+	Network.PlayHitStutter:FireClient(targetPlayer, 0.15) -- Apply brief camera shake
+end
+
+function TriggerPerfectGuard(player, character, originPos)
+	print("🌟 PERFECT GUARD LOGGED FOR: " .. player.Name)
+	
+	-- 1. Grant short frame immunity
+	character:SetAttribute("IsInvincible", true)
+	
+	-- 2. Reward resources
+	local currentHeat = player:GetAttribute("Heat") or 0
+	player:SetAttribute("Heat", math.min(100, currentHeat + 35)) -- Huge style bonus
+	
+	-- 3. Run client-side freeze frame effect (Hit-stop time dilation)
+	Network.PlayBlockEffect:FireAllClients(character.HumanoidRootPart.Position, "Perfect")
+	
+	task.wait(0.25) -- Length of physical freeze frame
+	character:SetAttribute("IsInvincible", false)
+end
+end
+
+CombatController:Initialize()
