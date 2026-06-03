@@ -1,0 +1,32 @@
+-- ZoneProgressionSystem (Server Script)
+local ZoneRegistry = {
+    ["Sector0_UnderDock"] = {
+        UnlockedByDefault = true,
+        NextZone = "Sector1_PleasureDistrict",
+        RequiredKeycard = nil
+    },
+    ["Sector1_PleasureDistrict"] = {
+        UnlockedByDefault = false,
+        NextZone = "Sector2_BiotechGreenhouse",
+        RequiredKeycard = "Golden_VIP_Pass" -- Dropped by the Casino Pit-Boss
+    },
+    ["Sector2_BiotechGreenhouse"] = {
+        UnlockedByDefault = false,
+        NextZone = "Executive_Bridge",
+        RequiredKeycard = "Bio_Override_Chit" -- Ripped from the Overgrown Core Reactor
+    }
+}
+
+function verifyZoneAccess(player, targetZoneID)
+    local zoneData = ZoneRegistry[targetZoneID]
+    if not zoneData then return false end
+    if zoneData.UnlockedByDefault then return true end
+    
+    -- Check if player inventory possesses the necessary progression item
+    local inventory = player:WaitForChild("Inventory")
+    if zoneData.RequiredKeycard and inventory:GetAttribute(zoneData.RequiredKeycard) then
+        return true
+    end
+    
+    return false
+end
