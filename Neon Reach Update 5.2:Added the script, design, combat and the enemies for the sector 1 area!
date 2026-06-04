@@ -1,0 +1,77 @@
+-- ServerScriptService -> FragileFloorManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local MAX_PANEL_HEALTH = 100
+local CRACK_THRESHOLD_1 = 70
+local CRACK_THRESHOLD_2 = 35
+
+-- Table to track health state of active glass parts
+local GlassPanels = {}
+
+function RegisterGlassPanel(part)
+	GlassPanels[part] = {
+		Health = MAX_PANEL_HEALTH,
+		IsShattered = false,
+		OriginalColor = part.Color
+	}
+	part:SetAttribute("IsFragileGlass", true)
+end
+
+-- Call this function whenever a heavy kinetic attack lands on the floor
+function DamageFloorPanel(panelPart, damageAmount)
+	local data = GlassPanels[panelPart]
+	if not data or data.IsShattered then return end
+	
+	data.Health = math.max(0, data.Health - damageAmount)
+	
+	if data.Health <= 0 then
+		ShatterPanel(panelPart)
+	elseif data.Health <= CRACK_THRESHOLD_2 then
+		-- Visual feedback: Severe structural failure
+		panelPart.Color = Color3.fromRGB(255, 100, 100) -- Glows warning crimson
+		Network.PlayBreakEffect:FireAllClients(panelPart.Position, "HeavyCracks")
+	elseif data.Health <= CRACK_THRESHOLD_1 then
+		-- Visual feedback: Spiderweb fractures
+		panelPart.Color = Color3.fromRGB(200, 230, 255)
+		Network.PlayBreakEffect:FireAllClients(panelPart.Position, "LightCracks")
+	end
+end
+
+function ShatterPanel(panelPart)
+	local data = GlassPanels[panelPart]
+	data.IsShattered = true
+	
+	-- Play structural explosion audio
+	local sound = panelPart:FindFirstChild("ShatterSound") or Instance.new("Sound", panelPart)
+	sound.SoundId = "rbxassetid://9114223194" -- Glass explosion asset
+	sound.Volume = 1.5
+	sound:Play()
+	
+	-- Fire client side particle explosion (glass shards showering downward)
+	Network.PlayBreakEffect:FireAllClients(panelPart.Position, "GlassShatterBurst")
+	
+	-- Turn off physics boundaries so players/enemies fall through smoothly
+	panelPart.CanCollide = false
+	panelPart.Transparency = 1
+	
+	-- Ragdoll any characters caught on the panel during the collapse
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	
+	local bounds = workspace:GetPartBoundsInBox(panelPart.CFrame, panelPart.Size + Vector3.new(0, 4, 0), overlapParams)
+	for _, object in pairs(bounds) do
+		local humanoid = object.Parent:FindFirstChild("Humanoid")
+		if humanoid and not object.Parent:GetAttribute("IsFalling") then
+			object.Parent:SetAttribute("IsFalling", true)
+			-- Force a 2-second recovery ragdoll state upon landing below
+			TriggerPlayerRagdoll(object.Parent, 2.0) 
+		end
+	end
+	
+	-- Cleanup asset after sound completes
+	task.wait(3)
+	panelPart:Destroy()
+	GlassPanels[panelPart] = nil
+end
