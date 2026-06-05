@@ -1,0 +1,98 @@
+-- StarterPlayer -> StarterPlayerScripts -> LocalFloorEffectReceiver
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+-- Pre-loaded Texture asset IDs for the fracture layers
+local FRACTURE_TEXTURES = {
+	["LightCracks"] = "rbxassetid://1234567890",  -- Fine spiderweb map
+	["HeavyCracks"] = "rbxassetid://0987654321"   -- Dense, broken safety glass map
+}
+
+Network.PlayBreakEffect.OnClientEvent:Connect(function(panelPosition, effectType)
+	-- Locate the nearest physical floor panel to the impact coordinate
+	local panel = findClosestGlassPanel(panelPosition)
+	if not panel then return end
+	
+	if effectType == "LightCracks" then
+		ApplyFractureOverlay(panel, FRACTURE_TEXTURES.LightCracks)
+		TriggerImpactDust(panelPosition, 15)
+	elseif effectType == "HeavyCracks" then
+		ApplyFractureOverlay(panel, FRACTURE_TEXTURES.HeavyCracks)
+		TriggerImpactDust(panelPosition, 40)
+		FlashPanelWarning(panel)
+	elseif effectType == "GlassShatterBurst" then
+		TriggerShatterDebrisExplosion(panelPosition, panel.Size)
+	end
+end)
+
+function ApplyFractureOverlay(panel, textureId)
+	-- Look for an existing overlay layer on the top face of the part
+	local texture = panel:FindFirstChild("FractureMap")
+	if not texture then
+		texture = Instance.new("Texture")
+		texture.Name = "FractureMap"
+		texture.Face = Enum.NormalId.Top
+		texture.StudsPerTileU = panel.Size.X
+		texture.StudsPerTileV = panel.Size.Z
+		texture.Parent = panel
+	end
+	
+	texture.Texture = textureId
+end
+
+function FlashPanelWarning(panel)
+	-- Pulse the neon tint to show severe structural instability
+	local info = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local tween = TweenService:Create(panel, info, {Color = Color3.fromRGB(255, 75, 75)})
+	tween:Play()
+	
+	-- Store tween reference on the object so it can be cleaned up if destroyed
+	panel:SetAttribute("ActiveWarningTween", true)
+end
+
+function TriggerImpactDust(position, count)
+	-- Spawns a burst of shimmering neon glass dust particles
+	local emitter = ReplicatedStorage.FX.GlassDustEmitter:Clone()
+	local attachment = Instance.new("Attachment")
+	attachment.Position = position
+	attachment.Parent = workspace.Terrain
+	
+	emitter.Parent = attachment
+	emitter:Emit(count)
+	
+	task.wait(2)
+	attachment:Destroy()
+end
+
+function TriggerShatterDebrisExplosion(position, panelSize)
+	-- Spawns larger, physics-based debris chunks that tumble downwards
+	local burstAttachment = Instance.new("Attachment")
+	burstAttachment.Position = position
+	burstAttachment.Parent = workspace.Terrain
+	
+	local shardEmitter = ReplicatedStorage.FX.GlassShardEmitter:Clone()
+	shardEmitter.Parent = burstAttachment
+	shardEmitter:Emit(75) -- High density burst
+	
+	-- Play a sharp, structural glass snapping sound locally
+	local snapSound = ReplicatedStorage.Audio.GlassSnap:Clone()
+	snapSound.Parent = burstAttachment
+	snapSound:Play()
+	
+	task.wait(3)
+	burstAttachment:Destroy()
+end
+
+function findClosestGlassPanel(pos)
+	local closest = nil
+	local minDist = 8
+	for _, part in pairs(workspace.Environment.GlassFloors:GetChildren()) do
+		local dist = (part.Position - pos).Magnitude
+		if dist < minDist then
+			minDist = dist
+			closest = part
+		end
+	end
+	return closest
+end
