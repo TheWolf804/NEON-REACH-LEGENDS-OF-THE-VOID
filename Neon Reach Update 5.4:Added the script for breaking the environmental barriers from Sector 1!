@@ -1,0 +1,80 @@
+-- ServerScriptService -> BreakableBarrierManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local BreakableBarriers = {}
+
+function RegisterBreakableBarrier(compositeModel)
+	for _, part in pairs(compositeModel:GetChildren()) do
+		if part:IsA("BasePart") then
+			part:SetAttribute("MaxHealth", 50)
+			part:SetAttribute("CurrentHealth", 50)
+			part:SetAttribute("IsBarrierSegment", true)
+			
+			-- Store structural dependencies (e.g., Aquariums leak if damaged)
+			part:SetAttribute("BarrierType", compositeModel:GetAttribute("BarrierType") or "Standard")
+		end
+	end
+end
+
+function DamageBarrierSegment(part, damageAmount, hitVelocity)
+	local hp = part:GetAttribute("CurrentHealth")
+	if not hp or hp <= 0 then return end
+	
+	local newHp = math.max(0, hp - damageAmount)
+	part:SetAttribute("CurrentHealth", newHp)
+	
+	if newHp <= 0 then
+		ShatterBarrierSegment(part, hitVelocity)
+	else
+		-- Structural stress feedback (flickering neon lights, minor debris dust)
+		Network.PlayBreakEffect:FireAllClients(part.Position, "BarrierStress")
+		TriggerFlickerEffect(part)
+	end
+end
+
+function ShatterBarrierSegment(part, hitVelocity)
+	part.CanCollide = false
+	part.Transparency = 1
+	
+	-- Fire client-side high-velocity break visuals
+	Network.PlayBreakEffect:FireAllClients(part.Position, "BarrierShatter", hitVelocity)
+	
+	-- Handle specialized environmental aftermath based on type
+	local barrierType = part:GetAttribute("BarrierType")
+	if barrierType == "AquariumPillar" then
+		TriggerLocalizedFlooding(part.Position)
+	elseif barrierType == "NeonBar" then
+		-- Leave behind sharp metallic frame debris that acts as a Tier 3 pickup weapon
+		SpawnDebrisWeapon(part.Position, "NeonPipe")
+	end
+	
+	-- Sound profile execution
+	local sound = Instance.new("Sound", workspace.Terrain)
+	sound.SoundId = "rbxassetid://9113619559" -- Heavy structural crunch
+	sound.Volume = 1.2
+	sound:Play()
+	
+	task.wait(3)
+	sound:Destroy()
+	part:Destroy()
+end
+-- Local Combat Engine Injection (Executed inside LocalFloorEffectReceiver)
+function TriggerBarrierShatterFX(position, impactVelocity)
+	local debrisAttachment = Instance.new("Attachment")
+	debrisAttachment.Position = position
+	debrisAttachment.Parent = workspace.Terrain
+	
+	local emitter = ReplicatedStorage.FX.BarrierShardEmitter:Clone()
+	
+	-- Align particle velocity vector with the direction of the killing blow
+	local forceDirection = impactVelocity.Unit
+	emitter.Speed = NumberRange.new(impactVelocity.Magnitude * 0.5, impactVelocity.Magnitude)
+	emitter.Acceleration = forceDirection * 20 - Vector3.new(0, 35, 0) -- Blends forward force with gravity
+	
+	emitter.Parent = debrisAttachment
+	emitter:Emit(50)
+	
+	task.wait(2)
+	debrisAttachment:Destroy()
+end
