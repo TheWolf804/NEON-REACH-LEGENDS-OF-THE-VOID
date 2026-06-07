@@ -1,0 +1,84 @@
+-- ServerScriptService -> BiotechGreenhouseManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local SPORE_RADIUS = 14
+local HEAT_DRAIN_TICK = 8 -- Heat lost per second inside the cloud
+local STAMINA_REGEN_PENALTY = 0.3 -- Reduces stamina recovery rate by 70%
+
+local ActiveSporeClouds = {}
+
+-- Registers a spore cloud origin point in the level
+function RegisterSporeCloud(originPart)
+	table.insert(ActiveSporeClouds, {
+		Part = originPart,
+		Position = originPart.Position,
+		IsDispersed = false,
+		DispersalTimer = 0
+	})
+	originPart:SetAttribute("IsSporeSource", true)
+end
+
+-- Core processing loop running at 10Hz (optimized tick rate for resource checks)
+task.spawn(function()
+	while true do
+		task.wait(0.1)
+		local players = game.Players:GetPlayers()
+		
+		for _, cloud in pairs(ActiveSporeClouds) do
+			if not cloud.IsDispersed then
+				for _, player in pairs(players) do
+					local character = player.Character
+					if character and character:FindFirstChild("HumanoidRootPart") then
+						local dist = (character.HumanoidRootPart.Position - cloud.Position).Magnitude
+						
+						if dist <= SPORE_RADIUS then
+							ApplySporeContamination(player, character)
+						end
+					end
+				end
+			else
+				-- Manage the dispersal window
+				if os.clock() - cloud.DispersalTimer >= 6.0 then
+					cloud.IsDispersed = false
+					cloud.Part.Transparency = 0.5 -- Visually return cloud
+					Network.ToggleSporeFX:FireAllClients(cloud.Position, true)
+				end
+			end
+		end
+	end
+end)
+
+function ApplySporeContamination(player, character)
+	-- Highlight the player character with a subtle purple bioluminescent tint
+	character:SetAttribute("IsContaminated", true)
+	
+	-- Drain Heat Resource
+	local currentHeat = player:GetAttribute("Heat") or 0
+	player:SetAttribute("Heat", math.max(0, currentHeat - (HEAT_DRAIN_TICK * 0.1)))
+	
+	-- Inject Stamina Suppression to the client
+	Network.ApplyStaminaDebuff:FireClient(player, STAMINA_REGEN_PENALTY)
+end
+
+-- Authoritative API invoked when a player executes a heavy kinetic finisher near a cloud
+function ProcessKineticWindBlast(blastPosition, blastRadius)
+	for _, cloud in pairs(ActiveSporeClouds) do
+		local dist = (cloud.Position - blastPosition).Magnitude
+		if dist <= blastRadius and not cloud.IsDispersed then
+			-- Disperse the cloud
+			cloud.IsDispersed = true
+			cloud.DispersalTimer = os.clock()
+			cloud.Part.Transparency = 1 -- Hide structural zone
+			
+			-- Fire client-side visual dispersal (particles scattering away outward)
+			Network.ToggleSporeFX:FireAllClients(cloud.Position, false)
+			
+			local sound = Instance.new("Sound", cloud.Part)
+			sound.SoundId = "rbxassetid://9114389143" -- Air rushing/whoosh asset
+			sound.Volume = 1.0
+			sound:Play()
+			sound.Ended:Connect(function() sound:Destroy() end)
+		end
+	end
+end
