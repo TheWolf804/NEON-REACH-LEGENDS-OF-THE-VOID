@@ -1,0 +1,133 @@
+-- StarterPlayer -> StarterPlayerScripts -> LocalWindBlastHandler
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local WindBlastController = {}
+
+-- Define how efficiently each style pushes air masses
+local KINETIC_BLAST_PROFILES = {
+	["Brawler"] = { Radius = 15, Force = 45, RequiresFinisher = true },
+	["Rush"]    = { Radius = 6,  Force = 15, RequiresFinisher = false }, -- Pinpoint air thrusts
+	["Beast"]   = { Radius = 24, Force = 90, RequiresFinisher = true }  -- Massive 360 sweeping displacement
+}
+
+-- Hook directly into the client attack execution cycle
+Network.SubmitAttack.OnClientEvent:Connect(function(styleName, comboIndex)
+	-- Check if the current strike qualifies as a wind blast
+	local profile = KINETIC_BLAST_PROFILES[styleName]
+	if not profile then return end
+	
+	-- In Brawler/Beast, only the final combo finisher (Hit #4) generates a heavy shockwave
+	if profile.RequiresFinisher and comboIndex ~= 4 then return end
+	
+	WindBlastController:GenerateKineticBlast(profile)
+end)
+
+function WindBlastController:GenerateKineticBlast(profile)
+	local rootPart = Character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	
+	local blastOrigin = rootPart.Position + (rootPart.CFrame.LookVector * 4) -- Shift origin slightly forward
+	
+	-- 1. Client-Side Visual Instant Feedback: Render the shockwave ring
+	self:RenderShockwaveFX(blastOrigin, profile.Radius)
+	
+	-- 2. Authoritative Synchronization: Notify server to calculate cloud dispersal states
+	Network.SubmitKineticBlast:FireServer(blastOrigin, profile.Radius, profile.Force)
+end
+
+function WindBlastController:RenderShockwaveFX(origin, maxRadius)
+	-- Spawn a physical distortion ring from ReplicatedStorage
+	local ring = ReplicatedStorage.FX.WindShockwaveRing:Clone()
+	ring.Position = origin
+	ring.Size = Vector3.new(2, 0.2, 2)
+	ring.Parent = workspace.Terrain
+	
+	-- Quickly scale the ring outward while fading its transparency to simulate an explosive air burst
+	local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.QuadOut, Enum.EasingDirection.Out)
+	local targetGoals = {
+		Size = Vector3.new(maxRadius * 2, 0.5, maxRadius * 2),
+		Transparency = 1
+	}
+	
+	local tween = TweenService:Create(ring, tweenInfo, targetGoals)
+	tween:Play()
+	
+	-- Debris cleanup
+	tween.Completed:Connect(function()
+		ring:Destroy()
+	end)
+end
+
+return WindBlastController
+-- ServerScriptService -> ServerWindBlastValidator
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local MAX_ALLOWED_BEAST_RADIUS = 26
+
+Network.SubmitKineticBlast.OnServerEvent:Connect(function(player, clientBlastOrigin, clientRadius, clientForce)
+	local character = player.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	
+	local serverPlayerPos = character.HumanoidRootPart.Position
+	local distanceDiscrepancy = (serverPlayerPos - clientBlastOrigin).Magnitude
+	
+	-- Security/Desync Check: Is the client claiming to blast a spot miles away from where they actually stand?
+	if distanceDiscrepancy > 12 then
+		warn("Exploit or severe desync warning: Wind blast origin too far from player body. Skipping calculation.")
+		return
+	end
+	
+	-- Bound Verification: Ensure the radius matches maximum configured engine design profiles
+	local authorizedRadius = math.min(clientRadius, MAX_ALLOWED_BEAST_RADIUS)
+	
+	-- Invoke the global Biotech Greenhouse manager to officially disperse any poisoned air volumes
+	if typeof(workspace:GetAttribute("Global_ProcessKineticWindBlast")) == "function" then
+		-- If using modular routing
+		_G.ProcessKineticWindBlast(clientBlastOrigin, authorizedRadius)
+	else
+		-- Direct fallback invoke to the environmental script we coded earlier
+		ProcessKineticWindBlast(clientBlastOrigin, authorizedRadius)
+	end
+	
+	-- Apply physics impulses to lightweight enemies caught in the blast vector
+	ApplyBlastKnockback(clientBlastOrigin, authorizedRadius, clientForce, character)
+end)
+
+function ApplyBlastKnockback(origin, radius, force, attacker)
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	overlapParams.FilterDescendantsInstances = {attacker}
+	
+	local parts = workspace:GetPartBoundsInBox(CFrame.new(origin), Vector3.new(radius * 2, 8, radius * 2), overlapParams)
+	local processedHumanoids = {}
+	
+	for _, part in pairs(parts) do
+		local enemyChar = part.Parent
+		local hum = enemyChar:FindFirstChildOfClass("Humanoid")
+		local root = enemyChar:FindFirstChild("HumanoidRootPart")
+		
+		if hum and root and not processedHumanoids[hum] then
+			processedHumanoids[hum] = true
+			
+			-- Calculate vector directed away from the epicenter of the wind burst
+			local pushDirection = (root.Position - origin).Unit
+			pushDirection = Vector3.new(pushDirection.X, 0.2, pushDirection.Z).Unit -- Keep the vertical push minimal
+			
+			-- Apply immediate velocity step to the enemy root part
+			root.AssemblyLinearVelocity = pushDirection * force
+			
+			-- If hit by a heavy Beast blast, stagger the enemy AI out of their attack animations
+			if force > 50 then
+				enemyChar:SetAttribute("StaggeredState", true)
+				task.delay(0.8, function() enemyChar:SetAttribute("StaggeredState", false) end)
+			end
+		end
+	end
+end
