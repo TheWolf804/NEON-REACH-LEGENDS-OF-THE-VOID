@@ -1,0 +1,69 @@
+-- ServerScriptService -> OrionBossAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local BossCore = script.Parent
+local Humanoid = BossCore.Humanoid
+
+local CurrentPhase = 1
+local IsInvincible = true
+
+function InitializeFight()
+	BossCore:SetAttribute("Phase", 1)
+	Humanoid:SetAttribute("ShieldValue", 15000)
+	
+	-- Monitor health for phase execution boundaries
+	Humanoid.HealthChanged:Connect(function(currentHealth)
+		local healthPercentage = currentHealth / Humanoid.MaxHealth
+		
+		if healthPercentage <= 0.65 and CurrentPhase == 1 then
+			TriggerPhaseTwo()
+		elseif healthPercentage <= 0.30 and CurrentPhase == 2 then
+			TriggerPhaseThree()
+		end
+	end)
+end
+
+function TriggerPhaseTwo()
+	CurrentPhase = 2
+	BossCore:SetAttribute("Phase", 2)
+	print("🚨 O.R.I.O.N. PHASE 2: CORE DETACHMENT")
+	
+	-- Play dramatic structural dropping sequences
+	Network.PlayBossCinematic:FireAllClients("CoreDrop")
+	BossCore.Sounds.HydraulicCrash:Play()
+	
+	-- Open the Core to structural damage vulnerability
+	IsInvincible = false
+	
+	-- Flood the room's environmental buffer with permanent spore pressure
+	workspace:SetAttribute("Greenhouse_AmbientSporeLevel", 2)
+end
+
+function TriggerPhaseThree()
+	CurrentPhase = 3
+	BossCore:SetAttribute("Phase", 3)
+	print("🔥 O.R.I.O.N. PHASE 3: SOLAR EXTERMINATION PROTOCOL")
+	
+	IsInvincible = true -- Shield regenerates for the final puzzle run
+	BossCore.Sounds.LaserCharge:Play()
+	
+	-- Start firing the sweeping laser arrays
+	task.spawn(function()
+		while Humanoid.Health > 0 do
+			ExecuteLaserSweeps()
+			task.wait(4.5)
+		end
+	end)
+end
+
+function ExecuteLaserSweeps()
+	-- Notify clients to render warning lines across the obsidian glass floor
+	Network.PlayBossLaserWarning:FireAllClients()
+	task.wait(1.2) -- Reaction frame window
+	
+	-- Sweep the arena with unblockable damage lines
+	Network.ExecuteLaserDamageSweep:FireAllClients()
+end
+
+InitializeFight()
