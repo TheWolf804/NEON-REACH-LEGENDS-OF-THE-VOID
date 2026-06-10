@@ -1,0 +1,87 @@
+-- ServerScriptService -> SunSiphonCoreManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local MAX_THERMAL = 100
+local BASE_THERMAL_TICK = 1.5 -- Temperature gained per second automatically
+local HEAT_VENT_RADIUS = 18
+
+local PlayerThermalStates = {}
+
+-- Main environment tick loop running at 5Hz
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		for _, player in pairs(game.Players:GetPlayers()) do
+			local character = player.Character
+			if character and character:FindFirstChild("HumanoidRootPart") then
+				-- Track or initialize player thermal state
+				if not PlayerThermalStates[player] then
+					PlayerThermalStates[player] = 0
+				end
+				
+				local currentThermal = PlayerThermalStates[player]
+				local multiplier = character:GetAttribute("NearExhaustConduit") and 3 or 1
+				
+				-- Increment temperature based on environment
+				currentThermal = math.min(MAX_THERMAL, currentThermal + (BASE_THERMAL_TICK * 0.2 * multiplier))
+				PlayerThermalStates[player] = currentThermal
+				
+				-- Sync to player HUD layout
+				Network.UpdateThermalHUD:FireClient(player, currentThermal)
+				
+				-- Apply burning damage penalty at max temperature
+				if currentThermal >= MAX_THERMAL then
+					character.Humanoid:TakeDamage(4) -- Fast-ticking damage
+					character:SetAttribute("IsBurning", true)
+				end
+			end
+		end
+	end
+end)
+
+-- Hook invoked securely when the client triggers their style "Extreme Heat Mode" [G Key]
+Network.ToggleExtremeHeat.OnServerEvent:Connect(function(player, isActivating)
+	if not isActivating then return end
+	
+	local character = player.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	
+	local currentThermal = PlayerThermalStates[player] or 0
+	if currentThermal < 40 then return end -- Must be sufficiently cooked to vent forcefully
+	
+	print("🔥 THERMAL VENT EXECUTION: " .. player.Name)
+	
+	-- Reset the player's temperature completely
+	PlayerThermalStates[player] = 0
+	character:SetAttribute("IsBurning", false)
+	Network.UpdateThermalHUD:FireClient(player, 0)
+	
+	-- Fire client visual explosion (Blinding white solar shockwave)
+	Network.PlayVentFX:FireAllClients(character.HumanoidRootPart.Position, currentThermal)
+	
+	-- Convert the vented thermal energy into an unblockable kinetic blast wave
+	ApplyThermalShockwaveDamage(character.HumanoidRootPart.Position, currentThermal)
+end)
+
+function ApplyThermalShockwaveDamage(origin, thermalIntensity)
+	local overlapParams = OverlapParams.new()
+	local parts = workspace:GetPartBoundsInBox(CFrame.new(origin), Vector3.new(HEAT_VENT_RADIUS * 2, 12, HEAT_VENT_RADIUS * 2), overlapParams)
+	local processedHumanoids = {}
+	
+	-- Damage scales directly based on how close to melting point the player was when they vented
+	local damageOutput = 25 + (thermalIntensity * 0.75) 
+	
+	for _, part in pairs(parts) do
+		local enemy = part.Parent
+		local hum = enemy:FindFirstChildOfClass("Humanoid")
+		if hum and not processedHumanoids[hum] and enemy ~= player.Character then
+			processedHumanoids[hum] = true
+			hum:TakeDamage(damageOutput)
+			
+			-- Ignite enemies caught in the blast vector
+			enemy:SetAttribute("OnFireState", true)
+			task.delay(4, function() enemy:SetAttribute("OnFireState", false) end)
+		end
+	end
+end
