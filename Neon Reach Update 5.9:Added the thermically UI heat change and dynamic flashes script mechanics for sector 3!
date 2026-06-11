@@ -1,0 +1,102 @@
+-- StarterPlayer -> StarterPlayerScripts -> LocalThermalHUDController
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local Camera = workspace.CurrentCamera
+
+-- UI Setup (Assuming a ScreenGui named 'ThermalHUD' with a 'Bar' frame inside)
+local ThermalHUD = PlayerGui:WaitForChild("ThermalHUD")
+local BackgroundBar = ThermalHUD:WaitForChild("MainFrame")
+local FillBar = BackgroundBar:WaitForChild("Fill")
+local WarningText = BackgroundBar:FindFirstChild("WarningLabel")
+
+-- Post-Processing Effects pre-installed inside Lighting
+local ColorCorrection = Lighting:FindFirstChild("ThermalColor") or Instance.new("ColorCorrectionEffect", Lighting)
+local BlurEffect = Lighting:FindFirstChild("ThermalBlur") or Instance.new("BlurEffect", Lighting)
+
+local FLASH_SPEED_THRESHOLD = 75
+local isFlashing = false
+
+Network.UpdateThermalHUD.OnClientEvent:Connect(function(thermalPercentage)
+	-- 1. Scale the Fill Bar smoothly
+	local targetSize = UDim2.new(thermalPercentage / 100, 0, 1, 0)
+	TweenService:Create(FillBar, TweenInfo.new(0.15, Enum.EasingStyle.QuadOut), {Size = targetSize}):Play()
+	
+	-- 2. Dynamically adjust bar color based on danger level
+	if thermalPercentage < 40 then
+		FillBar.BackgroundColor3 = Color3.fromRGB(240, 140, 30) -- Amber
+		ColorCorrection.Saturation = 0
+		ColorCorrection.Contrast = 0
+		BlurEffect.Size = 0
+		isFlashing = false
+	elseif thermalPercentage >= 40 and thermalPercentage < 75 then
+		FillBar.BackgroundColor3 = Color3.fromRGB(255, 90, 0) -- Pure Orange
+		
+		-- Begin minor camera color shifting
+		ColorCorrection.Saturation = 0.25
+		ColorCorrection.Contrast = 0.1
+	elseif thermalPercentage >= 75 then
+		FillBar.BackgroundColor3 = Color3.fromRGB(255, 0, 50) -- Crimson Warning
+		
+		-- Heavy screen distortion mimicking thermal exhaustion
+		ColorCorrection.Saturation = 0.8 * (thermalPercentage / 100)
+		ColorCorrection.Contrast = 0.4 * (thermalPercentage / 100)
+		BlurEffect.Size = 4 * (thermalPercentage / 100) -- Subtle blur making edges fuzzy
+		
+		if not isFlashing then
+			isFlashing = true
+			task.spawn(TriggerUIMeltingFlash)
+		end
+	end
+end)
+
+function TriggerUIMeltingFlash()
+	while isFlashing do
+		-- Alternate visibility of warning indicators rapidly
+		FillBar.BackgroundTransparency = 0.6
+		if WarningText then WarningText.Visible = true end
+		
+		-- Punch the camera field of view rapidly to simulate a throbbing pulse
+		Camera.FieldOfView = 72
+		task.wait(0.12)
+		
+		FillBar.BackgroundTransparency = 0
+		if WarningText then WarningText.Visible = false end
+		Camera.FieldOfView = 70
+		task.wait(0.12)
+	end
+	
+	-- Reset state when cleared
+	FillBar.BackgroundTransparency = 0
+	if WarningText then WarningText.Visible = false end
+	Camera.FieldOfView = 70
+end
+
+-- Screen-Shake explosion trigger when you successfully execute an Extreme Heat Vent [G Key]
+Network.PlayVentFX.OnClientEvent:Connect(function(ventOrigin, thermalIntensity)
+	isFlashing = false -- Instantly kill the flash loop
+	
+	-- Cinematic blast effect: Snapshot white flash
+	local flashLayer = Instance.new("ColorCorrectionEffect", Lighting)
+	flashLayer.Brightness = 1
+	TweenService:Create(flashLayer, TweenInfo.new(0.4, Enum.EasingStyle.QuadIn), {Brightness = 0}):Play()
+	
+	-- Intense physical camera rumble scaling with how much heat you stored
+	local shakeDuration = 0.5 + (thermalIntensity * 0.005)
+	local shakeIntensity = 0.8 + (thermalIntensity * 0.01)
+	
+	local startTime = os.clock()
+	while os.clock() - startTime < shakeDuration do
+		local offsetX = math.random(-100, 100) * 0.01 * shakeIntensity
+		local offsetY = math.random(-100, 100) * 0.01 * shakeIntensity
+		Camera.CFrame = Camera.CFrame * CFrame.new(offsetX, offsetY, 0)
+		task.wait()
+	end
+	
+	flashLayer:Destroy()
+end)
