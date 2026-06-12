@@ -1,0 +1,65 @@
+-- ServerScriptService -> QuantumForgeManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local PhaseController = {
+	CurrentReality = "Alpha", -- Can alternate between "Alpha" and "Beta"
+	IsTransitioning = false
+}
+
+local RealityAssets = workspace:FindFirstChild("ForgeEnvironment")
+
+function PhaseController:TriggerQuantumShift()
+	if self.IsTransitioning then return end
+	self.IsTransitioning = true
+	
+	-- Alternate the structural state identifier
+	self.CurrentReality = (self.CurrentReality == "Alpha") and "Beta" or "Alpha"
+	print("🌀 CRITICAL QUANTUM SHIFT REGISTERED: SWAPPING TO REALITY " .. self.CurrentReality)
+	
+	-- 1. Sync state to all clients to initiate local screen-glitch shaders
+	Network.SyncQuantumPhase:FireAllClients(self.CurrentReality)
+	
+	-- 2. Brief temporal freeze frame to let physics safely settle
+	task.wait(0.1)
+	
+	-- 3. Update physical map collisions server-side
+	if RealityAssets then
+		for _, model in pairs(RealityAssets:GetChildren()) do
+			if model:GetAttribute("RealityDimension") == "Alpha" then
+				model.PrimaryPart.CanCollide = (self.CurrentReality == "Alpha")
+				SetModelTransparency(model, (self.CurrentReality == "Alpha") and 0 or 1)
+			elseif model:GetAttribute("RealityDimension") == "Beta" then
+				model.PrimaryPart.CanCollide = (self.CurrentReality == "Beta")
+				SetModelTransparency(model, (self.CurrentReality == "Beta") and 0 or 1)
+			end
+		end
+	end
+	
+	task.wait(1.5) -- Cool-down period before reality can be fractured again
+	self.IsTransitioning = false
+end
+
+function SetModelTransparency(model, transparencyValue)
+	for _, part in pairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = transparencyValue
+			-- Toggle localized hazards based on active reality dimensions
+			if transparencyValue == 1 then
+				part.CanTouch = false
+			else
+				part.CanTouch = true
+			end
+		end
+	end
+end
+
+-- Secure binding: Let heavy client combo completions trigger a reality fracture
+Network.SubmitAttack.OnServerEvent:Connect(function(player, styleName, comboIndex)
+	-- If a player hits a maximum Tier 6 Beast finisher in Sector 4, shatter spacetime
+	if styleName == "Beast" and comboIndex == 4 and player.Character:GetAttribute("InQuantumForge") then
+		PhaseController:TriggerQuantumShift()
+	end
+end)
+
+return PhaseController
