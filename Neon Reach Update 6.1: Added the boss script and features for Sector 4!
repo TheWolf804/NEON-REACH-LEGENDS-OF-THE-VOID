@@ -1,0 +1,74 @@
+-- ServerScriptService -> DrVaneBossAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Boss = script.Parent
+local Humanoid = Boss.Humanoid
+
+local CurrentPhase = 1
+local BossDimensionState = "Alpha" -- "Alpha" or "Beta"
+
+function InitializeVaneFight()
+	Boss:SetAttribute("CurrentDimension", BossDimensionState)
+	
+	-- Initiate the rhythmic phase-cycling loop for Phase 1
+	task.spawn(function()
+		while Humanoid.Health > (Humanoid.MaxHealth * 0.6) do
+			task.wait(10)
+			CycleBossDimension()
+		end
+	end)
+	
+	Humanoid.HealthChanged:Connect(function(currentHealth)
+		local healthPct = currentHealth / Humanoid.MaxHealth
+		if healthPct <= 0.60 and CurrentPhase == 1 then
+			TriggerVanePhaseTwo()
+		elseif healthPct <= 0.25 and CurrentPhase == 2 then
+			TriggerVanePhaseThree()
+		end
+	end)
+end
+
+function CycleBossDimension()
+	if CurrentPhase ~= 1 then return end
+	
+	BossDimensionState = (BossDimensionState == "Alpha") and "Beta" or "Alpha"
+	Boss:SetAttribute("CurrentDimension", BossDimensionState)
+	
+	-- Notify all clients to update the boss's aura shaders locally
+	Network.UpdateBossAura:FireAllClients(BossDimensionState)
+	Boss.Visuals.PhaseGlow.Color = (BossDimensionState == "Alpha") and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(255, 0, 100)
+end
+
+function TriggerVanePhaseTwo()
+	CurrentPhase = 2
+	print("🌀 DR. VANE PHASE 2: PARADOX ARENA SPLIT")
+	Network.PlayBossCinematic:FireAllClients("ParadoxSplit")
+	
+	-- Force the global environment into a permanent dual-state layout
+	workspace:SetAttribute("Forge_IsDualSplitActive", true)
+end
+
+function TriggerVanePhaseThree()
+	CurrentPhase = 3
+	print("🚨 DR. VANE PHASE 3: TOTAL QUANTUM SINGULARITY")
+	
+	-- Enable the client-side style-scrambling HUD protocols
+	Network.ToggleGlitchStorm:FireAllClients(true)
+	
+	-- Increase boss tracking speed drastically
+	Humanoid.WalkSpeed = 32
+end
+
+-- Process damage registration from player weapons/punches
+function ProcessDamageToVane(player, damageAmount, playerActiveReality)
+	-- Cheat prevention: If player is in Alpha but Vane is phased into Beta, negate damage
+	if CurrentPhase == 1 and playerActiveReality ~= BossDimensionState then
+		Network.PlayBlockEffect:FireClient(player, Boss.HumanoidRootPart.Position, "PhasePhasedOut")
+		return
+	end
+	
+	Humanoid:TakeDamage(damageAmount)
+end
+
+InitializeVaneFight()
