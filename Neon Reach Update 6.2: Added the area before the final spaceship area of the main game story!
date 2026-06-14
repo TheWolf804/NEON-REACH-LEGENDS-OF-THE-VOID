@@ -1,0 +1,70 @@
+-- ServerScriptService -> LaunchPadBreachManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local LAUNCH_TIMER_MAX = 180 -- 3 Minutes to clear the platform and board
+local IsShuttleBoarded = false
+
+function StartLaunchSequence(player)
+	local character = player.Character
+	if not character then return end
+	
+	player:SetAttribute("InLaunchGauntlet", true)
+	local timeRemaining = LAUNCH_TIMER_MAX
+	
+	-- Start countdown sequence on the player's HUD layout
+	Network.ToggleCountdownUI:FireClient(player, true, timeRemaining)
+	
+	-- Spawn aggressive reinforcement waves to slow the player down
+	task.spawn(function()
+		while timeRemaining > 0 and not IsShuttleBoarded do
+			task.wait(1)
+			timeRemaining = timeRemaining - 1
+			Network.UpdateCountdownUI:FireClient(player, timeRemaining)
+			
+			-- Trigger environment alarms and mortar fire patterns at specific time steps
+			if timeRemaining % 30 == 0 then
+				SpawnSecurityReinforcements()
+			end
+		end
+		
+		if not IsShuttleBoarded then
+			TriggerLaunchFailure(player)
+		end
+	end)
+end
+
+function SpawnSecurityReinforcements()
+	local spawnPoints = workspace.Environment.LaunchPad.SpawnLocations:GetChildren()
+	for i = 1, 4 do
+		local selectedPoint = spawnPoints[math.random(1, #spawnPoints)]
+		local heavyTrooper = ReplicatedStorage.Enemies.CorpHeavyTrooper:Clone()
+		heavyTrooper.PrimaryPart.CFrame = selectedPoint.CFrame
+		heavyTrooper.Parent = workspace.Enemies
+	end
+	print("🚨 WARNING: SHUTTLE SECURITY ENFORCERS DEPLOYED")
+end
+
+function TriggerPlayerBoarding(player)
+	IsShuttleBoarded = true
+	player:SetAttribute("InLaunchGauntlet", false)
+	Network.ToggleCountdownUI:FireClient(player, false, 0)
+	
+	print("🚀 GAUNTLET COMPLETE: Player has breached the cargo hold. Initializing orbital transit.")
+	
+	-- Trigger the unskippable epic cutscene: The shuttle blasting through the upper stratosphere
+	Network.PlayCinematicTransition:FireAllClients("OrbitAscent")
+	
+	task.wait(5)
+	-- Load the player directly into Sector 0: The Under-Dock Slums of the Space Station!
+	TeleportToSpaceStation(player)
+end
+
+function TriggerLaunchFailure(player)
+	local character = player.Character
+	if character and character:FindFirstChild("Humanoid") then
+		-- The engines fire while you are still on the pad; catastrophic heat disintegration
+		character.Humanoid:TakeDamage(999999) 
+		Network.PlayDeathScreen:FireClient(player, "INCINERATED BY SHUTTLE THRUSTERS")
+	end
+end
