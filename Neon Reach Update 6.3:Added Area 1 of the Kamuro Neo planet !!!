@@ -1,0 +1,92 @@
+-- ServerScriptService -> StreetWeaponObjectSystem
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local StreetProps = {
+	["HoverScooter"]    = { Weight = "Heavy", Durability = 3, BaseDamage = 45, Reach = 8 },
+	["VendingMachine"]  = { Weight = "Massive", Durability = 1, BaseDamage = 80, Reach = 5 },
+	["SteelBicycle"]    = { Weight = "Medium", Durability = 4, BaseDamage = 25, Reach = 7 },
+	["PlasticCrate"]    = { Weight = "Light", Durability = 2, BaseDamage = 15, Reach = 4 }
+}
+
+-- Triggered via Client interaction prompt [E Key]
+Network.RequestPropPickup.OnServerEvent:Connect(function(player, propPart)
+	local character = player.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	
+	-- Verify proximity to the object to prevent exploit teleports
+	local distance = (character.HumanoidRootPart.Position - propPart.Position).Magnitude
+	if distance > 10 then return end
+	
+	local propName = propPart:GetAttribute("PropName")
+	local profile = StreetProps[propName]
+	if not profile then return end
+	
+	-- Beast Style can pick up anything; Brawler can only pick up Light/Medium
+	local currentStyle = player:GetAttribute("CurrentStyle") or "Brawler"
+	if profile.Weight == "Massive" and currentStyle ~= "Beast" then
+		Network.DisplayHUDWarning:FireClient(player, "Requires BEAST STYLE to lift!")
+		return
+	end
+	
+	WeldPropToPlayerHand(character, propPart, profile)
+end)
+
+function WeldPropToPlayerHand(character, propPart, profile)
+	propPart.CanCollide = false
+	propPart:SetAttribute("CurrentDurability", profile.Durability)
+	
+	-- Snap object to the character's Right Hand combat node
+	local rightHand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "WeaponWeld"
+	
+	propPart.CFrame = rightHand.CFrame * CFrame.new(0, -1, 0)
+	weld.Part0 = rightHand
+	weld.Part1 = propPart
+	weld.Parent = propPart
+	
+	-- Tag character model state
+	character:SetAttribute("IsHoldingStreetWeapon", true)
+	character:SetAttribute("EquippedPropType", propPart:GetAttribute("PropName"))
+	
+	-- Force heavy lifting animation speed modifiers onto Humanoid
+	local speedPenalty = profile.Weight == "Massive" and 6 or (profile.Weight == "Heavy" and 3 or 0)
+	character.Humanoid.WalkSpeed = math.max(6, character.Humanoid.WalkSpeed - speedPenalty)
+	
+	-- Notify client to switch to improvised weapon input map
+	Network.ConfirmPickup:FireClient(game.Players:GetPlayerFromCharacter(character), propPart)
+end
+-- Injected into the primary Server Hitbox Handler
+function ProcessStreetWeaponStrike(player, hitEnemyChar, propPart)
+	local profile = StreetProps[propPart:GetAttribute("PropName")]
+	local currentDurability = propPart:GetAttribute("CurrentDurability") or 1
+	
+	currentDurability = currentDurability - 1
+	propPart:SetAttribute("CurrentDurability", currentDurability)
+	
+	local enemyHumanoid = hitEnemyChar:FindFirstChildOfClass("Humanoid")
+	
+	if currentDurability <= 0 then
+		-- CATASTROPHIC SHATTER FINISHER
+		local criticalDamage = profile.BaseDamage * 2.2
+		enemyHumanoid:TakeDamage(criticalDamage)
+		
+		-- Force target into flat-back ragdoll recovery state
+		hitEnemyChar:SetAttribute("StunState", "HardKnockdown")
+		
+		-- FX Burst: Sparks, scrap metal chunks, explosive sound design
+		Network.PlayBreakEffect:FireAllClients(propPart.Position, "PropShatterBurst", profile.Weight)
+		
+		-- Restore player speed parameters back to standard stance defaults
+		local speedRecovery = profile.Weight == "Massive" and 6 or (profile.Weight == "Heavy" and 3 or 0)
+		player.Character.Humanoid.WalkSpeed = player.Character.Humanoid.WalkSpeed + speedRecovery
+		player.Character:SetAttribute("IsHoldingStreetWeapon", false)
+		
+		propPart:Destroy()
+	else
+		-- Standard Impact Strike
+		enemyHumanoid:TakeDamage(profile.BaseDamage)
+		Network.PlayBlockEffect:FireAllClients(propPart.Position, "ImprovisedHit")
+	end
+end
