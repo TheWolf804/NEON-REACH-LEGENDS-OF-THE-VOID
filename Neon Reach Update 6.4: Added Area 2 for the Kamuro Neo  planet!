@@ -1,0 +1,74 @@
+-- ServerScriptService -> CorporateSecurityManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local SHIELD_MAX_DURABILITY = 3
+local SHIELD_ANGLE_THRESHOLD = 0.5 -- Cosine of angle for frontal coverage (~60 degrees)
+
+-- Map tracking active security shield conditions
+local ActiveShieldStates = {}
+
+function RegisterShieldEnemy(enemyCharacter)
+	ActiveShieldStates[enemyCharacter] = {
+		Durability = SHIELD_MAX_DURABILITY,
+		IsShieldBroken = false
+	}
+	enemyCharacter:SetAttribute("HasActiveShield", true)
+end
+
+function VerifyShieldMitigation(attackerRoot, enemyRoot, damageAmount, styleUsed)
+	local state = ActiveShieldStates[enemyRoot.Parent]
+	if not state or state.IsShieldBroken then return false end -- No shield, full damage applies
+	
+	-- Vector math: Determine if attacker is in front of the shield orientation
+	local enemyForward = enemyRoot.CFrame.LookVector
+	local toAttacker = (attackerRoot.Position - enemyRoot.Position).Unit
+	local dotProduct = enemyForward:Dot(toAttacker)
+	
+	-- If Dot Product is highly positive, the attacker is hitting the front shield surface
+	if dotProduct >= SHIELD_ANGLE_THRESHOLD then
+		if styleUsed == "Beast" then
+			-- Heavy Beast attacks structurally fracture the battery pack
+			state.Durability = math.max(0, state.Durability - 1)
+			
+			if state.Durability <= 0 then
+				ShatterEnergyShield(enemyRoot.Parent)
+			else
+				Network.PlayBlockEffect:FireAllClients(enemyRoot.Position, "ShieldStrained")
+			end
+			return true -- Damage absorbed, but shield took wear
+		else
+			-- Standard light attacks deflect completely, inflicting minor stagger to player
+			Network.PlayBlockEffect:FireAllClients(enemyRoot.Position, "ShieldDeflect")
+			return true 
+		end
+	end
+	
+	return false -- Attacker flanked the shield; full backstab damage applies
+end
+
+function ShatterEnergyShield(enemyCharacter)
+	local state = ActiveShieldStates[enemyCharacter]
+	if not state then return end
+	
+	state.IsShieldBroken = true
+	enemyCharacter:SetAttribute("HasActiveShield", false)
+	
+	-- Play electric overload shockwave visual effects
+	local root = enemyCharacter:FindFirstChild("HumanoidRootPart")
+	if root then
+		Network.PlayBreakEffect:FireAllClients(root.Position, "ShieldOverloadBurst")
+		
+		-- Force enemy into an electric stun loop for 3.5 seconds
+		enemyCharacter:SetAttribute("StunState", "Electrocuted")
+		local hum = enemyCharacter:FindFirstChildOfClass("Humanoid")
+		if hum then hum.WalkSpeed = 0 end
+		
+		task.delay(3.5, function()
+			if enemyCharacter and enemyCharacter:Parent() then
+				enemyCharacter:SetAttribute("StunState", "Normal")
+				if hum then hum.WalkSpeed = 12 end
+			end
+		end)
+	end
+end
