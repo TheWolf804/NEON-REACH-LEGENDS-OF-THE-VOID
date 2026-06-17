@@ -1,0 +1,63 @@
+-- ServerScriptService -> StratosphereGantryManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local TARGET_GRAVITY_LOW = 14.5 -- Drastically lower than standard default gravity (196.2)
+local ALTITUDE_CLIMB_SPEED = 20 -- Simulates height progression
+
+local ActiveFighters = {}
+
+function ApplyStratospherePhysics(player)
+	local character = player.Character
+	local workspace = game:GetService("Workspace")
+	
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	
+	-- Reduce character density locally to enable floaty jumping
+	for _, part in pairs(character:GetChildren()) do
+		if part:IsA("BasePart") then
+			part.CustomPhysicalProperties = PhysicalProperties.new(0.3, 0.3, 0, 1, 1)
+		end
+	end
+	
+	-- Inject custom vector force to simulate anti-gravity field on the ascending gantry
+	local root = character.HumanoidRootPart
+	local antiGrav = root:FindFirstChild("StratosphereFloatForce") or Instance.new("VectorForce")
+	antiGrav.Name = "StratosphereFloatForce"
+	antiGrav.Attachment0 = root:FindFirstChildOfClass("Attachment") or Instance.new("Attachment", root)
+	antiGrav.Force = Vector3.new(0, root:GetMass() * 120, 0) -- Counteracts standard engine weight
+	antiGrav.RelativeTo = Enum.ActuatorRelativeTo.World
+	antiGrav.Parent = root
+	
+	character:SetAttribute("InLowGravityZone", true)
+	print("🌌 ALTITUDE HIGH: Low-Gravity combat matrix initialized for " .. player.Name)
+end
+
+-- Hook into damage execution to prolong hitstun loops while airborne
+Network.SubmitAttack.OnServerEvent:Connect(function(player, styleName, comboIndex)
+	local character = player.Character
+	if not character or not character:GetAttribute("InLowGravityZone") then return end
+	
+	-- If player lands a launcher strike in Rush Style, suspend the enemy in mid-air
+	if styleName == "Rush" and comboIndex == 3 then
+		local overlapParams = OverlapParams.new()
+		local parts = workspace:GetPartBoundsInBox(character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -4), Vector3.new(6, 6, 6), overlapParams)
+		
+		for _, part in pairs(parts) do
+			local enemyChar = part.Parent
+			local enemyRoot = enemyChar:FindFirstChild("HumanoidRootPart")
+			if enemyRoot and enemyChar ~= character and not enemyChar:GetAttribute("AirSuspended") then
+				enemyChar:SetAttribute("AirSuspended", true)
+				
+				-- Lock enemy in an extended aerial stagger frame
+				enemyRoot.AssemblyLinearVelocity = Vector3.new(0, 45, 0) -- Lift upwards softly
+				
+				task.delay(1.8, function()
+					if enemyChar and enemyChar:Parent() then
+						enemyChar:SetAttribute("AirSuspended", false)
+					end
+				end)
+			end
+		end
+	end
+end)
