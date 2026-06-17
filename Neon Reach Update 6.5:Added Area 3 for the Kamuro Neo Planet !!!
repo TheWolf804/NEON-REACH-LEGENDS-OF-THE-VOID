@@ -1,0 +1,65 @@
+-- ServerScriptService -> SeaWallGantryManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local WAVE_INTERVAL = 20
+local WAVE_KINETIC_FORCE = 65
+
+function StartSeaWallSimulation()
+	task.spawn(function()
+		while true do
+			task.wait(WAVE_INTERVAL - 3)
+			-- Phase 1: Fire sirens and flash HUD lights red
+			Network.PlayEnvironmentalWarning:FireAllClients("WaveIncoming")
+			task.wait(3)
+			
+			-- Phase 2: Execute the massive water impact sweep
+			ExecuteTidalSurge()
+		end
+	end)
+end
+
+function ExecuteTidalSurge()
+	local players = game.Players:GetPlayers()
+	Network.PlayWaveVisualExplosion:FireAllClients() -- Clients render massive water sheet spray
+	
+	for _, player in pairs(players) do
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local hum = character and character:FindFirstChildOfClass("Humanoid")
+		
+		if root and hum and not character:GetAttribute("IsInsideGatehouse") then
+			-- Verify Stance Anchor: Beast style completely roots the player
+			local currentStyle = player:GetAttribute("CurrentStyle") or "Brawler"
+			
+			if currentStyle == "Beast" then
+				-- Play visual steam/sparks from boots resisting the push
+				Network.PlayBlockEffect:FireClient(player, root.Position, "BeastAnchored")
+			else
+				-- Check if player is hiding behind an obstruction part tagged "WaveShield"
+				if not IsPlayerBehindCover(root) then
+					-- Launch the player down the gantry vector (Left to Right along X-Axis)
+					root.AssemblyLinearVelocity = Vector3.new(WAVE_KINETIC_FORCE, 5, 0)
+					character:SetAttribute("StunState", "Staggered")
+					hum:TakeDamage(15)
+					
+					task.delay(0.6, function() character:SetAttribute("StunState", "Normal") end)
+				end
+			end
+		end
+	end
+end
+
+function IsPlayerBehindCover(playerRoot)
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Include
+	raycastParams.FilterDescendantsInstances = {workspace.Environment.WaveShields}
+	
+	-- Cast a ray directly into the oncoming direction of the ocean wave surge
+	local waveOriginDirection = Vector3.new(-1, 0, 0)
+	local rayResult = workspace:Raycast(playerRoot.Position, waveOriginDirection * 12, raycastParams)
+	
+	return rayResult ~= nil -- If something solid blocks the ray, the player is safely sheltered
+end
+
+task.spawn(StartSeaWallSimulation)
