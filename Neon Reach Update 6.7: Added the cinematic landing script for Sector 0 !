@@ -1,0 +1,93 @@
+-- Client LocalScript -> SectorZeroArrivalCinematic
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local function TriggerArrivalSequence(dockPart)
+	local character = player.Character or player.CharacterAdded:Wait()
+	local root = character:WaitForChild("HumanoidRootPart")
+	local humanoid = character:WaitForChild("Humanoid")
+	
+	-- Disable user control frameworks during the arrival sequence
+	local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
+	local controls = PlayerModule:GetControls()
+	controls:Disable()
+	humanoid.WalkSpeed = 0
+	
+	-- Switch camera to scriptable cinematic manipulation mode
+	camera.CameraType = Enum.CameraType.Scriptable
+	
+	-- PHASE 1: THE HYPERSONIC IMPACT SNAP
+	-- Position camera far away looking back up at the structural dock cap
+	camera.CFrame = CFrame.new(dockPart.Position + Vector3.new(-45, 15, -45), dockPart.Position)
+	
+	-- Apply heavy, asymmetrical screen vibration loop to simulate violent slowing forces
+	local shakeEndTime = os.clock() + 2.5
+	local shakeConnection
+	shakeConnection = RunService.RenderStepped:Connect(function()
+		if os.clock() > shakeEndTime then
+			shakeConnection:Disconnect()
+		else
+			local intensity = (shakeEndTime - os.clock()) / 2.5 -- Scales down smoothly over time
+			local shakeX = math.sin(os.clock() * 65) * 2.5 * intensity
+			local shakeY = math.cos(os.clock() * 50) * 2.5 * intensity
+			camera.CFrame = camera.CFrame * CFrame.new(shakeX, shakeY, 0)
+		end
+	end)
+	
+	task.wait(2.2)
+	
+	-- PHASE 2: STEAM DECOMPRESSION AND WHITE-OUT FADE
+	-- Flash HUD overlay to complete blinding white to hide physical level streaming snaps
+	Network.TriggerUIFade:Fire("WhiteIn", 0.3)
+	task.wait(0.4)
+	
+	-- Move camera inside the steaming airlock terminal right behind the player's back
+	root.CFrame = dockPart.CFrame * CFrame.new(0, 3, 15) -- Teleport player safely into Sector 0
+	camera.CFrame = CFrame.new(root.Position + Vector3.new(0, 6, 12), root.Position + Vector3.new(0, 2, -10))
+	
+	task.wait(0.5)
+	Network.TriggerUIFade:Fire("FadeOutClear", 2.0) -- Smooth smoke clearance visual
+	
+	-- PHASE 3: THE BADASS WALKIN ENGINE
+	-- Play custom, un-cancelable slow walk track directly into the sub-dock slums
+	local animTrack = humanoid:LoadAnimation(ReplicatedStorage.Animations.CinematicWalkIn)
+	animTrack:Play()
+	
+	-- Move camera smoothly forward alongside the player profile
+	local cameraTweenInfo = TweenInfo.new(3.5, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+	local targetCameraCFrame = CFrame.new(root.Position + Vector3.new(-8, 3, -6), root.Position)
+	
+	local cameraTween = TweenService:Create(camera, cameraTweenInfo, {CFrame = targetCameraCFrame})
+	cameraTween:Play()
+	
+	task.wait(3.5)
+	
+	-- PHASE 4: STANCE CONVERSION & HANDOFF
+	animTrack:Stop(0.3)
+	
+	-- Interpolate the cinematic tracking loop perfectly straight back to default over-shoulder gameplay views
+	camera.CameraType = Enum.CameraType.Custom
+	controls:Enable()
+	humanoid.WalkSpeed = 16
+	
+	-- Pop Area Text Announcement Title Layer onto the screen
+	Network.DisplayLocationBanner:Fire("SECTOR 0: THE UNDER-DOCK SLUMS", "Population: Forgotten")
+end
+
+-- Connect to server-fired transit landing triggers
+Network.ClientPlayCinematicLanding.OnClientEvent:Connect(TriggerArrivalSequence)
+-- Server Side Core Combat Handler Loop -> Trigger Transition
+if BossKira.Humanoid.Health <= 0 then
+	-- Freeze all active combatants on the elevator deck
+	FreezeAllEnemiesInZone()
+	
+	-- Trigger the network handshake directly out to the local client frames
+	local dockTargetPart = workspace.Environment.SectorZeroAirlockDock
+	Network.ClientPlayCinematicLanding:FireAllClients(dockTargetPart)
+end
