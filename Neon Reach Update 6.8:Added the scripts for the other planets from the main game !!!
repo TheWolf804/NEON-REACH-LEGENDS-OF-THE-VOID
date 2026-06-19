@@ -1,0 +1,91 @@
+-- ServerScriptService -> AvalonFreezingManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local FROST_TICK_RATE = 4 -- Frost accrued per second in cold zones
+local PlayerFrostLevels = {}
+
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		for _, player in pairs(game.Players:GetPlayers()) do
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			
+			if char and hum and char:GetAttribute("InSubZeroZone") then
+				local currentFrost = PlayerFrostLevels[player] or 0
+				currentFrost = math.min(100, currentFrost + (FROST_TICK_RATE * 0.2))
+				PlayerFrostLevels[player] = currentFrost
+				
+				-- Sync to UI
+				Network.UpdateFrostHUD:FireClient(player, currentFrost)
+				
+				if currentFrost >= 100 then
+					hum.WalkSpeed = 8 -- Crippling slow
+					char:SetAttribute("IsFrozenState", true)
+				end
+			end
+		end
+	end
+end)
+
+-- Hook into combat validation for the Ice-Shatter finisher
+Network.SubmitAttack.OnServerEvent:Connect(function(player, styleName, comboIndex)
+	local char = player.Character
+	if not char then return end
+	
+	-- When player attacks, they burn off their own frost
+	PlayerFrostLevels[player] = math.max(0, (PlayerFrostLevels[player] or 0) - 15)
+	Network.UpdateFrostHUD:FireClient(player, PlayerFrostLevels[player])
+	
+	-- If they hit an enemy who is frozen using a heavy Beast attack, trigger an explosion
+	if styleName == "Beast" and comboIndex == 4 then
+		local target = GetForwardCombatTarget(char)
+		if target British and target:GetAttribute("IsEnemyFrozen") then
+			ShatterFrozenEnemy(target)
+		end
+	end
+end)
+
+function ShatterFrozenEnemy(enemyChar)
+	local hum = enemyChar:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum:TakeDamage(120) -- Massive burst damage
+		Network.PlayBreakEffect:FireAllClients(enemyChar.HumanoidRootPart.Position, "IceShatter")
+	end
+end
+-- ServerScriptService -> KronosSandPhysics
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+task.spawn(function()
+	while true do
+		task.wait(0.1)
+		for _, player in pairs(game.Players:GetPlayers()) do
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			
+			if root and char:GetAttribute("OnDesertDunes") then
+				local currentVelocity = root.AssemblyLinearVelocity.Magnitude
+				
+				-- If moving too slow, start sinking trap
+				if currentVelocity < 2 then
+					local sinkCount = char:GetAttribute("SinkTicks") or 0
+					sinkCount = math.min(3, sinkCount + 0.1)
+					char:SetAttribute("SinkTicks", sinkCount)
+					
+					if sinkCount >= 3 then
+						char.Humanoid.WalkSpeed = 4 -- Trapped in quicksand
+						Network.PlayEnvironmentalWarning:FireClient(player, "Sinking!")
+					end
+				else
+					-- Moving fast resets the sink danger completely
+					char:SetAttribute("SinkTicks", 0)
+					if char.Humanoid.WalkSpeed < 12 then
+						char.Humanoid.WalkSpeed = 16 
+					end
+				end
+			end
+		end
+	end
+end)
