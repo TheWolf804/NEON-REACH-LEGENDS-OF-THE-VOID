@@ -1,0 +1,135 @@
+-- ServerScriptService -> AvalonEnemyAISystem
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local EnemyArchetypes = {
+	["SiberianOverseer"] = { MaxHealth = 180, WalkSpeed = 14, Damage = 12, Armor = 0 },
+	["CryoGrenadier"]    = { MaxHealth = 140, WalkSpeed = 11, Damage = 8,  Armor = 0 },
+	["ExoEnforcer"]       = { MaxHealth = 450, WalkSpeed = 9,  Damage = 35, Armor = 150 }
+}
+
+-- Configures a newly spawned prison guard with proper stats and tags
+function SpawnPrisonGuard(archetypeId, spawnCFrame)
+	local template = ReplicatedStorage.Enemies:FindFirstChild(archetypeId)
+	if not template then return nil end
+	
+	local config = EnemyArchetypes[archetypeId]
+	local newEnemy = template:Clone()
+	newEnemy.PrimaryPart.CFrame = spawnCFrame
+	
+	local hum = newEnemy:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.MaxHealth = config.MaxHealth
+		hum.Health = config.MaxHealth
+		hum.WalkSpeed = config.WalkSpeed
+	end
+	
+	-- Vital: Syndicate gear provides total immunity to Avalon's freezing environment
+	newEnemy:SetAttribute("IsFreezingImmune", true)
+	newEnemy:SetAttribute("ArmorValue", config.Armor)
+	newEnemy:SetAttribute("EnemyType", archetypeId)
+	
+	-- Wire up the AI tracking loop
+	task.spawn(function()
+		RunPrisonGuardAI(newEnemy, config)
+	end)
+	
+	newEnemy.Parent = workspace.Enemies
+	return newEnemy
+end
+
+function RunPrisonGuardAI(enemyChar, config)
+	local hum = enemyChar:FindFirstChildOfClass("Humanoid")
+	local root = enemyChar:FindFirstChild("HumanoidRootPart")
+	
+	while enemyChar and enemyChar:Parent() and hum.Health > 0 do
+		task.wait(0.4) -- AI processing interval
+		
+		-- Skip behavior if the enemy is currently staggered, knocked down, or frozen by the player
+		if enemyChar:GetAttribute("StunState") == "HardKnockdown" or enemyChar:GetAttribute("IsEnemyFrozen") then
+			continue
+		end
+		
+		local targetPlayer = FindNearestLivingPlayer(root.Position)
+		if targetPlayer and targetPlayer.Character then
+			local playerRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if playerRoot then
+				local distance = (playerRoot.Position - root.Position).Magnitude
+				
+				if distance <= 6 then
+					-- Execute direct attack sequence
+					ExecuteEnemyAttackPattern(enemyChar, targetPlayer.Character, config)
+				else
+					-- Pathfind or move straight toward the fugitive player
+					hum:MoveTo(playerRoot.Position)
+				end
+			end
+		end
+	end
+end
+
+function FindNearestLivingPlayer(position)
+	local closestPlayer = nil
+	local shortestDistance = 500
+	
+	for _, player in pairs(game.Players:GetPlayers()) do
+		local char = player.Character
+		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if root then
+				local dist = (root.Position - position).Magnitude
+				if dist < shortestDistance then
+					shortestDistance = dist
+					closestPlayer = player
+				end
+			end
+		end
+	end
+	return closestPlayer
+end
+
+function ExecuteEnemyAttackPattern(enemyChar, playerChar, config)
+	local enemyType = enemyChar:GetAttribute("EnemyType")
+	local hum = enemyChar:FindFirstChildOfClass("Humanoid")
+	
+	if enemyType == "SiberianOverseer" then
+		-- Quick baton strike
+		Network.PlayEnemyAttackAnimation:FireAllClients(enemyChar, "BatonSwing")
+		task.wait(0.2) -- Frame wind-up
+		
+		-- Check collision box via simple magnitude verification
+		if VerifyCombatHitbox(enemyChar, playerChar, 5) then
+			playerChar.Humanoid:TakeDamage(config.Damage)
+			Network.PlayBlockEffect:FireAllClients(playerChar.HumanoidRootPart.Position, "ElectricHit")
+		end
+		
+	elseif enemyType == "CryoGrenadier" then
+		-- Point-blank blast or flee logic
+		hum:MoveTo(enemyChar.HumanoidRootPart.Position + (enemyChar.HumanoidRootPart.CFrame.LookVector * -15)) -- Back up
+		
+	elseif enemyType == "ExoEnforcer" then
+		-- Heavy ground slam
+		Network.PlayEnemyAttackAnimation:FireAllClients(enemyChar, "GroundSlam")
+		task.wait(0.6) -- Heavy, slow wind-up telltale
+		
+		if VerifyCombatHitbox(enemyChar, playerChar, 8) then
+			-- Check if the player is actively executing a Perfect Guard
+			if playerChar:GetAttribute("IsPerfectGuarding") then
+				-- Stagger the Exo-Enforcer, stripping their armor value!
+				enemyChar:SetAttribute("ArmorValue", math.max(0, (enemyChar:GetAttribute("ArmorValue") or 0) - 50))
+				Network.PlayBlockEffect:FireAllClients(enemyChar.HumanoidRootPart.Position, "ShieldOverloadBurst")
+			else
+				playerChar.Humanoid:TakeDamage(config.Damage)
+				playerChar:SetAttribute("StunState", "HardKnockdown")
+			end
+		end
+	end
+end
+
+function VerifyCombatHitbox(attacker, target, range)
+	local aRoot = attacker:FindFirstChild("HumanoidRootPart")
+	local tRoot = target:FindFirstChild("HumanoidRootPart")
+	if not aRoot or not tRoot then return false end
+	
+	return (aRoot.Position - tRoot.Position).Magnitude <= range
+end
