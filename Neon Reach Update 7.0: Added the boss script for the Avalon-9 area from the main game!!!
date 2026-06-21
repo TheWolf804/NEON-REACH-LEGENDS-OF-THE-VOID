@@ -1,0 +1,137 @@
+-- ServerScriptService -> BossWardenKrossAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Boss = {
+	Instance = nil,
+	Humanoid = nil,
+	Root = nil,
+	Phase = 1,
+	IsAttacking = false
+}
+
+function InitializeKrossFight(bossModel)
+	Boss.Instance = bossModel
+	Boss.Humanoid = bossModel:FindFirstChildOfClass("Humanoid")
+	Boss.Root = bossModel:FindFirstChild("HumanoidRootPart")
+	
+	Boss.Humanoid.MaxHealth = 3500
+	Boss.Humanoid.Health = 3500
+	
+	-- Setup phase shift listener
+	Boss.Humanoid.HealthChanged:Connect(function(currentHealth)
+		if Boss.Phase == 1 and currentHealth <= 1750 then
+			TriggerPhaseTwoShift()
+		end
+	end)
+	
+	task.spawn(RunKrossAILoop)
+end
+
+function RunKrossAILoop()
+	while Boss.Instance and Boss.Humanoid.Health > 0 do
+		task.wait(0.3)
+		
+		if Boss.IsAttacking or Boss.Instance:GetAttribute("StunState") == "HardKnockdown" then
+			continue
+		end
+		
+		local targetChar = FindTargetPlayer()
+		if targetChar then
+			local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+			local distance = targetRoot and (targetRoot.Position - Boss.Root.Position).Magnitude or 999
+			
+			if Boss.Phase == 1 then
+				-- Phase 1 Behavior: Defensive, crushing counters
+				if distance <= 7 then
+					ExecuteShieldSlamCombo(targetChar)
+				else
+					Boss.Humanoid:MoveTo(targetRoot.Position)
+				end
+			else
+				-- Phase 2 Behavior: Relentless chasing, heavy plasma tracking
+				if distance <= 10 then
+					ExecuteSlagCutterCombo(targetChar)
+				else
+					-- Super-dash forward using jet-pack assist
+					JetpackDashToTarget(targetRoot.Position)
+				end
+			end
+		end
+	end
+end
+
+function ExecuteShieldSlamCombo(targetChar)
+	Boss.IsAttacking = true
+	Boss.Instance:SetAttribute("IsShieldGuardActive", true) -- Immune to front-facing attacks
+	
+	Network.PlayBossAnimation:FireAllClients(Boss.Instance, "ShieldSlamWindup")
+	task.wait(0.4)
+	
+	if (Boss.Root.Position - targetChar.HumanoidRootPart.Position).Magnitude <= 8 then
+		targetChar.Humanoid:TakeDamage(25)
+		targetChar:SetAttribute("StunState", "Staggered")
+		-- Direct strike inflicts immediate +30% Frost onto player via sub-zero shield vents
+		Network.ApplyDirectFrost:FireClient(game.Players:GetPlayerFromCharacter(targetChar), 30)
+	end
+	
+	task.wait(0.5)
+	Boss.Instance:SetAttribute("IsShieldGuardActive", false)
+	Boss.IsAttacking = false
+end
+
+function TriggerPhaseTwoShift()
+	Boss.Phase = 2
+	Boss.IsAttacking = true
+	Boss.Humanoid.WalkSpeed = 22 -- Drastic speed boost
+	
+	-- Cinematic transformation frames
+	Network.PlayBossCinematicPhaseShift:FireAllClients(Boss.Instance)
+	
+	local heatSound = Instance.new("Sound", Boss.Root)
+	heatSound.SoundId = "rbxassetid://9114194384" -- Jet overload roar
+	heatSound.Pitch = 0.8
+	heatSound:Play()
+	
+	task.wait(2.5) -- Time for animations and roar to complete
+	Boss.IsAttacking = false
+end
+
+function ExecuteSlagCutterCombo(targetChar)
+	Boss.IsAttacking = true
+	
+	-- Three-hit tracking plasma string
+	for hitIndex = 1, 3 do
+		Network.PlayBossAnimation:FireAllClients(Boss.Instance, "SlagSwing_" .. hitIndex)
+		task.wait(0.25)
+		
+		if (Boss.Root.Position - targetChar.HumanoidRootPart.Position).Magnitude <= 11 then
+			-- Phase 2 attacks are unblockable, melting through guard systems
+			if not targetChar:GetAttribute("IsPerfectGuarding") then
+				targetChar.Humanoid:TakeDamage(30)
+				Network.PlayBlockEffect:FireAllClients(targetChar.HumanoidRootPart.Position, "PlasmaSlashExplosion")
+			else
+				-- A Perfect Guard cancels his string early!
+				Network.PlayBlockEffect:FireAllClients(Boss.Root.Position, "PerfectGuardSpark")
+				break
+			end
+		end
+		task.wait(0.15)
+	end
+	
+	task.wait(0.8) -- Recovery window where Kross cools down his blade
+	Boss.IsAttacking = false
+end
+
+function JetpackDashToTarget(targetPosition)
+	Boss.IsAttacking = true
+	Boss.Root.AssemblyLinearVelocity = (targetPosition - Boss.Root.Position).Unit * 75
+	Network.PlayBossAnimation:FireAllClients(Boss.Instance, "JetpackGlide")
+	task.wait(0.5)
+	Boss.IsAttacking = false
+end
+
+function FindTargetPlayer()
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1].Character or nil
+end
