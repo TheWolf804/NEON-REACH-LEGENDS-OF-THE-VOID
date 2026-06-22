@@ -1,0 +1,118 @@
+-- ServerScriptService -> KronosDesertCombatManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local RaiderStats = {
+	["SandSkimmer"] = { Health = 150, Speed = 26, Damage = 8 },
+	["JunkSniper"]  = { Health = 90,  Speed = 12, Damage = 15 },
+	["ScrapBruiser"] = { Health = 500, Speed = 10, Damage = 40 }
+}
+
+function SpawnDuneRaider(raiderType, spawnPosition)
+	local template = ReplicatedStorage.Enemies:FindFirstChild(raiderType)
+	if not template then return nil end
+	
+	local stats = RaiderStats[raiderType]
+	local raider = template:Clone()
+	raider.PrimaryPart.Position = spawnPosition
+	
+	local hum = raider:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.MaxHealth = stats.Health
+		hum.Health = stats.Health
+		hum.WalkSpeed = stats.Speed
+	end
+	
+	-- Sand Raiders have custom sand-shoes/skates making them immune to quicksand drag
+	raider:SetAttribute("QuicksandImmune", true)
+	raider:SetAttribute("RaiderType", raiderType)
+	
+	task.spawn(function()
+		RunRaiderLogic(raider, stats)
+	end)
+	
+	raider.Parent = workspace.Enemies
+	return raider
+end
+
+function RunRaiderLogic(raiderChar, stats)
+	local hum = raiderChar:FindFirstChildOfClass("Humanoid")
+	local root = raiderChar:FindFirstChild("HumanoidRootPart")
+	
+	while raiderChar and raiderChar:Parent() and hum.Health > 0 do
+		task.wait(0.3)
+		
+		if raiderChar:GetAttribute("StunState") == "HardKnockdown" then continue end
+		
+		local targetPlayer = FindNearestFugitive(root.Position)
+		if targetPlayer and targetPlayer.Character then
+			local playerRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if playerRoot then
+				local dist = (playerRoot.Position - root.Position).Magnitude
+				local raiderType = raiderChar:GetAttribute("RaiderType")
+				
+				if raiderType == "SandSkimmer" then
+					-- Fast drive-by behavior
+					if dist <= 8 then
+						Network.PlayEnemyAttackAnimation:FireAllClients(raiderChar, "SkateSlash")
+						playerRoot.Parent.Humanoid:TakeDamage(stats.Damage)
+						task.wait(0.5) -- Cool down dash
+					else
+						hum:MoveTo(playerRoot.Position)
+					end
+					
+				elseif raiderType == "JunkSniper" then
+					-- Maintain high ground and shoot harpoons
+					if dist < 40 and not raiderChar:GetAttribute("Reloading") then
+						ExecuteHarpoonSnipe(raiderChar, playerRoot.Parent)
+					end
+					
+				elseif raiderType == "ScrapBruiser" then
+					-- Relentless tracking heavy walks
+					if dist <= 7 then
+						Network.PlayEnemyAttackAnimation:FireAllClients(raiderChar, "RocketSlam")
+						task.wait(0.5) -- Wind up tell
+						if (root.Position - playerRoot.Position).Magnitude <= 8 then
+							if not playerRoot.Parent:GetAttribute("IsPerfectGuarding") then
+								playerRoot.Parent.Humanoid:TakeDamage(stats.Damage)
+								playerRoot.Parent:SetAttribute("StunState", "HardKnockdown")
+							end
+						end
+						task.wait(1.2) -- Heavy wind down
+					else
+						hum:MoveTo(playerRoot.Position)
+					end
+				end
+			end
+		end
+	end
+end
+
+function ExecuteHarpoonSnipe(sniperChar, playerChar)
+	sniperChar:SetAttribute("Reloading", true)
+	Network.PlayEnemyAttackAnimation:FireAllClients(sniperChar, "FireHarpoon")
+	
+	task.wait(0.4) -- Target lock delay
+	
+	local sRoot = sniperChar.HumanoidRootPart
+	local pRoot = playerChar:FindFirstChild("HumanoidRootPart")
+	
+	if pRoot and (sRoot.Position - pRoot.Position).Magnitude < 60 then
+		-- Fire custom raycast to check if player dodged
+		if playerChar:GetAttribute("CurrentStyle") ~= "Rush" or not playerChar:GetAttribute("IsDashing") then
+			-- Hit confirmed: Yank player backwards!
+			pRoot.AssemblyLinearVelocity = (sRoot.Position - pRoot.Position).Unit * 65
+			playerChar.Humanoid:TakeDamage(RaiderStats["JunkSniper"].Damage)
+			playerChar:SetAttribute("StunState", "Staggered")
+		end
+	end
+	
+	task.delay(3.0, function()
+		if sniperChar and sniperChar:Parent() then sniperChar:SetAttribute("Reloading", false) end
+	end)
+end
+
+function FindNearestFugitive(position)
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1] or nil
+end
