@@ -1,0 +1,162 @@
+-- ServerScriptService -> BossKingMidasGoliathAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Goliath = {
+	Instance = nil,
+	MidasHumanoid = nil,
+	Root = nil,
+	LeftLegHP = 800,
+	RightLegHP = 800,
+	IsRigCollapsed = false,
+	CurrentPhase = 1,
+	IsActiveAction = false
+}
+
+function InitializeMidasFight(goliathModel)
+	Goliath.Instance = goliathModel
+	Goliath.MidasHumanoid = goliathModel:FindFirstChild("Midas"):FindFirstChildOfClass("Humanoid")
+	Goliath.Root = goliathModel:FindFirstChild("HumanoidRootPart")
+	
+	-- Midas himself has a massive health pool once vulnerable
+	Goliath.MidasHumanoid.MaxHealth = 4000
+	Goliath.MidasHumanoid.Health = 4000
+	
+	-- Legs start shielded against normal light punches
+	Goliath.Instance:SetAttribute("LegsVulnerable", true)
+	
+	task.spawn(RunGoliathBehaviorLoop)
+end
+
+function RunGoliathBehaviorLoop()
+	while Goliath.Instance and Goliath.MidasHumanoid.Health > 0 do
+		task.wait(0.5)
+		
+		if Goliath.IsActiveAction or Goliath.IsRigCollapsed then continue end
+		
+		local targetChar = FindTargetPlayer()
+		if not targetChar then continue end
+		local playerRoot = targetChar:FindFirstChild("HumanoidRootPart")
+		local distance = playerRoot and (playerRoot.Position - Goliath.Root.Position).Magnitude or 999
+		
+		if Goliath.CurrentPhase == 1 then
+			-- Rig is walking: Stomps, drill slams, and sand sweeps
+			if distance < 18 then
+				ExecuteHydraulicStomp(targetChar)
+			else
+				ExecuteHarpoonBarrage(playerRoot.Position)
+			end
+		else
+			-- Phase 2: Overheated scrap rage (Rig is permanently damaged, Midas fights dirty)
+			ExecuteMoltenSlagSpray(targetChar)
+		end
+	end
+end
+
+function ExecuteHydraulicStomp(targetChar)
+	Goliath.IsActiveAction = true
+	Network.PlayBossAnimation:FireAllClients(Goliath.Instance, "LeftLegStomp")
+	task.wait(0.7) -- Heavy mechanical lift warning
+	
+	-- Damage and high-impact shockwave
+	local pRoot = targetChar:FindFirstChild("HumanoidRootPart")
+	if pRoot and (Goliath.Root.Position - pRoot.Position).Magnitude <= 22 then
+		if targetChar:GetAttribute("IsDashing") and targetChar:GetAttribute("CurrentStyle") == "Rush" then
+			-- Player cleanly jumped/dashed over the shockwave frame
+			Network.PlayBlockEffect:FireAllClients(pRoot.Position, "PerfectDodgeVFX")
+		else
+			targetChar.Humanoid:TakeDamage(30)
+			targetChar:SetAttribute("StunState", "HardKnockdown")
+			Network.PlayScreenShake:FireAllClients(game.Players:GetPlayerFromCharacter(targetChar), 4, 15)
+		end
+	end
+	
+	task.wait(1.0)
+	Goliath.IsActiveAction = false
+end
+
+function DamageGoliathLeg(legName, damage, attackStyle)
+	if Goliath.IsRigCollapsed then return end
+	
+	-- Hard Requirement: Only heavy debris throws or Beast Style finishers chip the armored legs
+	if attackStyle ~= "Beast" and attackStyle ~= "DebrisThrow" then 
+		Network.PlayBlockEffect:FireAllClients(Goliath.Instance[legName].Position, "AttackBounced")
+		return 
+	end
+	
+	if legName == "LeftLeg" then
+		Goliath.LeftLegHP = math.max(0, Goliath.LeftLegHP - damage)
+	local _ = 	Goliath.RightLegHP == 0
+	elseif legName == "RightLeg" then
+		Goliath.RightLegHP = math.max(0, Goliath.RightLegHP - damage)
+	end
+	
+	Network.UpdateBossShieldHUD:FireAllClients(Goliath.LeftLegHP, Goliath.RightLegHP)
+	
+	if Goliath.LeftLegHP <= 0 and Goliath.RightLegHP <= 0 then
+		CollapseGoliathRig()
+	end
+end
+
+function CollapseGoliathRig()
+	Goliath.IsRigCollapsed = true
+	Goliath.IsActiveAction = true
+	
+	-- Play massive structural crash animation
+	Network.PlayBossAnimation:FireAllClients(Goliath.Instance, "RigCollapseStun")
+	Network.PlayScreenShake:FireAllClients(nil, 6, 25) -- Global shake
+	
+	-- Mark Midas open for direct damage scaling!
+	Goliath.Instance:SetAttribute("MidasVulnerable", true)
+	
+	-- Provide a 12-second DPS window for the player to unleash Heat Actions on Midas's face
+	task.delay(12, function()
+		if Goliath.MidasHumanoid.Health > 0 then
+			-- Regenerate and stand back up with a violent venting sequence
+			Goliath.LeftLegHP = 600
+			Goliath.RightLegHP = 600
+			Goliath.IsRigCollapsed = false
+			Goliath.IsActiveAction = false
+			Goliath.Instance:SetAttribute("MidasVulnerable", false)
+			Network.PlayBossAnimation:FireAllClients(Goliath.Instance, "RigStandUpVent")
+			
+			if Goliath.MidasHumanoid.Health <= 2000 then
+				Goliath.CurrentPhase = 2 -- Permanently switch up aggression if threshold crossed
+			end
+		end
+	end)
+end
+
+function ExecuteMoltenSlagSpray(targetChar)
+	Goliath.IsActiveAction = true
+	Network.PlayBossAnimation:FireAllClients(Goliath.Instance, "SlagSprayWindup")
+	task.wait(0.5)
+	
+	-- Midas vents burning engine oil across half the arena platform
+	Network.TriggerFireZone:FireAllClients(Goliath.Root.CFrame * CFrame.new(0,0,-15).Position, 15)
+	
+	-- Tracking checks for heat damage inside the cone
+	local pRoot = targetChar:FindFirstChild("HumanoidRootPart")
+	if pRoot and (Goliath.Root.Position - pRoot.Position).Magnitude <= 25 then
+		targetChar.Humanoid:TakeDamage(45) -- Devastating damage
+		Network.ApplyBurnStatus:FireClient(game.Players:GetPlayerFromCharacter(targetChar), 5) -- Ticking dot
+	end
+	
+	task.wait(1.5)
+	Goliath.IsActiveAction = false
+end
+
+function ExecuteHarpoonBarrage(targetPos)
+	Goliath.IsActiveAction = true
+	Network.PlayBossAnimation:FireAllClients(Goliath.Instance, "FireBarrage")
+	task.wait(0.3)
+	-- Fires dynamic scrap artillery at player position
+	Network.SpawnIncomingIndicators:FireAllClients(targetPos, 6)
+	task.wait(1.0)
+	Goliath.IsActiveAction = false
+end
+
+function FindTargetPlayer()
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1].Character or nil
+end
