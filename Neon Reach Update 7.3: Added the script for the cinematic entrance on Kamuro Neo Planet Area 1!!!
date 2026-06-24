@@ -1,0 +1,59 @@
+-- ServerScriptService -> KamuroNeoArrivalCinematic
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+function TriggerKamuroNeoArrival(player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not humanoid then return end
+	
+	-- 1. Lock Player Controls for the Interstellar Transition
+	character:SetAttribute("InCinematicMode", true)
+	humanoid.WalkSpeed = 0
+	
+	-- 2. Boot up local camera shader scripts (Heavy rainy lens overlay, chromatic smear)
+	Network.ToggleCinematicCamera:FireClient(player, true, "KamuroArrival")
+	Network.TriggerWeatherEffect:FireClient(player, "AcidRain_Heavy")
+	
+	task.wait(2.0) -- Let the ship-crash audio and macro shots play out
+	
+	-- 3. Position Player on the landing alley deck
+	local introPlatform = workspace.Environment.Area1_Slums.IntroSpawnNode
+	root.CFrame = introPlatform.CFrame
+	
+	-- Spawn a pack of 4 initial Family Thugs to initiate an immediate tutorial shakedown
+	local thugSpawns = workspace.Environment.Area1_Slums.InitialThugSpawns:GetChildren()
+	local activeThugs = {}
+	for _, spawnPoint in pairs(thugSpawns) do
+		local thug = ReplicatedStorage.Enemies.NeoAlleyThug:Clone()
+		thug.PrimaryPart.CFrame = spawnPoint.CFrame
+		thug.Parent = workspace.Enemies
+		table.insert(activeThugs, thug)
+		
+		-- Emote/Taunt animations for the thugs during the camera pan
+		Network.PlayEnemyAnimation:FireAllClients(thug, "AlleyIntimidationTaunt")
+	end
+	
+	task.wait(2.5)
+	
+	-- 4. THE HANDOFF: Smooth cinematic pan right into your shoulder combat view
+	Network.ToggleCinematicCamera:FireClient(player, false) -- Camera snaps to combat mode
+	
+	-- Display Area Location Title Card Matrix
+	Network.DisplayLocationCard:FireClient(player, "AREA 1: THE NEON-ALLEY SLUMS", "District 4 - Planet Kamuro-Neo")
+	Network.PlayZoneBGM:FireClient(player, "Kamuro_StreetBrawl_Theme")
+	
+	-- 5. Give control back exactly as the lead thug initiates an aggressive sprint
+	character:SetAttribute("InCinematicMode", false)
+	humanoid.WalkSpeed = 16
+	
+	-- Force the closest thug to break into a sprint attack to instantly test player reaction
+	if #activeThugs > 0 then
+		local leadThug = activeThugs[1]
+		leadThug.Humanoid:MoveTo(root.Position)
+		task.wait(0.2)
+		Network.PlayEnemyAttackAnimation:FireAllClients(leadThug, "JumpingBatStrike")
+	end
+end
