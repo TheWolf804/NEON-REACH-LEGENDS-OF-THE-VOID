@@ -1,0 +1,124 @@
+-- ServerScriptService -> SubBossDaisukeSatoAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Boss = script.Parent
+local Humanoid = Boss:FindFirstChildOfClass("Humanoid")
+local Root = Boss:FindFirstChild("HumanoidRootPart")
+
+local IsOverclocked = false
+local ActiveCombatAction = false
+
+function InitializeSatoFight()
+	Humanoid.MaxHealth = 2800
+	Humanoid.Health = 2800
+	Boss:SetAttribute("PassiveHyperArmor", true) -- Phase 1: Immune to light staggers
+	
+	Humanoid.HealthChanged:Connect(function(currentHealth)
+		if currentHealth <= 1400 and not IsOverclocked then
+			ActivateOverclockPhase()
+		end
+	end)
+	
+	task.spawn(RunSatoBehaviorTree)
+end
+
+function RunSatoBehaviorTree()
+	while Boss and Humanoid.Health > 0 do
+		task.wait(0.25)
+		
+		if ActiveCombatAction or Boss:GetAttribute("StunState") == "HardKnockdown" then
+			continue
+		end
+		
+		local targetPlayer = FindNearestOpponent()
+		if targetPlayer and targetPlayer.Character then
+			local pRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			local distance = pRoot and (pRoot.Position - Root.Position).Magnitude or 999
+			
+			if distance <= 6 then
+				ExecutePugilistCombo(targetPlayer.Character)
+			else
+				-- If player tries to run away, Sato executes a high-speed shoulder tackle
+				if distance > 15 and distance < 35 and math.random(1, 3) == 1 then
+					ExecutePneumaticCharge(pRoot)
+				else
+					Humanoid:MoveTo(pRoot.Position)
+				end
+			end
+		end
+	end
+end
+
+function ExecutePugilistCombo(playerChar)
+	ActiveCombatAction = true
+	
+	local comboHits = IsOverclocked and 4 or 2
+	for i = 1, comboHits do
+		local animName = IsOverclocked and "OverclockHook_"..i or "HeavyHaymaker_"..i
+		Network.PlayBossAnimation:FireAllClients(Boss, animName)
+		task.wait(0.3) -- Wind-up tell
+		
+		if (Root.Position - playerChar.HumanoidRootPart.Position).Magnitude <= 7 then
+			if playerChar:GetAttribute("IsPerfectGuarding") then
+				-- Perfect guard shatters his rhythm, exposing him to counter-juggles
+				Network.PlayBlockEffect:FireAllClients(Root.Position, "PerfectGuardSpark")
+				Boss:SetAttribute("PassiveHyperArmor", false)
+				task.delay(2.0, function() Boss:SetAttribute("PassiveHyperArmor", true) end)
+				break
+			else
+				playerChar.Humanoid:TakeDamage(IsOverclocked and 28 or 20)
+				if IsOverclocked then
+					Network.ApplyBurnStatus:FireClient(game.Players:GetPlayerFromCharacter(playerChar), 3)
+				end
+			end
+		end
+		task.wait(0.2)
+	end
+	
+	task.wait(IsOverclocked and 0.4 or 0.8) -- Recovery window
+	ActiveCombatAction = false
+end
+
+function ExecutePneumaticCharge(playerRoot)
+	ActiveCombatAction = true
+	Network.PlayBossAnimation:FireAllClients(Boss, "ShoulderTackleCharge")
+	
+	-- Apply explosive linear force toward the player's vector
+	Root.AssemblyLinearVelocity = (playerRoot.Position - Root.Position).Unit * 80
+	task.wait(0.5)
+	
+	-- Environmental smash check: Did he hit a wall or the player?
+	local overlap = OverlapParams.new()
+	local hits = workspace:GetPartBoundsInBox(Root.CFrame * CFrame.new(0,0,-3), Vector3.new(6,6,6), overlap)
+	for _, part in pairs(hits) do
+		if part.Name == "AlleyWall" then
+			-- Smash open an electrical box to alter the arena grid
+			Network.TriggerWallSashHazard:FireAllClients(part.Position)
+			break
+		end
+	end
+	
+	ActiveCombatAction = false
+end
+
+function ActivateOverclockPhase()
+	IsOverclocked = true
+	ActiveCombatAction = true
+	Boss:SetAttribute("PassiveHyperArmor", false) -- Speed over armor now
+	Humanoid.WalkSpeed = 20
+	
+	Network.PlayBossCinematicPhaseShift:FireAllClients(Boss)
+	
+	-- Play hydraulic steam burst effects
+	Network.PlayBreakEffect:FireAllClients(Root.Position, "SteamVentOverload")
+	task.wait(2.0)
+	ActiveCombatAction = false
+end
+
+function FindNearestOpponent()
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1] or nil
+end
+
+InitializeSatoFight()
