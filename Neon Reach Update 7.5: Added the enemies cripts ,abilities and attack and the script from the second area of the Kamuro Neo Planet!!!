@@ -1,0 +1,89 @@
+-- ServerScriptService -> ObsidianPlazaSecurityManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local SecurityMatrix = {
+	IsAlarmActive = false,
+	LaserGridNodes = {},
+	SpawnedForces = {}
+}
+
+function InitializePlazaGrid()
+	SecurityMatrix.LaserGridNodes = workspace.Environment.Area2_Plaza.LaserHazards:GetChildren()
+	
+	-- Connect the proximity sensors on all laser grids
+	for _, laserPart in pairs(SecurityMatrix.LaserGridNodes) do
+		laserPart.Touched:Connect(function(hitPart)
+			local char = hitPart.Parent
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			
+			if hum and char:IsA("Model") and not char:GetAttribute("IsEnemy") then
+				-- Rush Style dash features complete framing immunity to laser triggers
+				if char:GetAttribute("CurrentStyle") == "Rush" and char:GetAttribute("IsDashing") then
+					Network.PlayBlockEffect:FireAllClients(laserPart.Position, "LaserPhaseBlink")
+				else
+					TriggerPlazaAlarm(char)
+				end
+			end
+		end)
+	end
+end
+
+function TriggerPlazaAlarm(triggerCharacter)
+	if SecurityMatrix.IsAlarmActive then return end
+	SecurityMatrix.IsAlarmActive = true
+	
+	-- Visual state shift: Change local plaza skyboxes and holographic blossoms to flashing warning red
+	Network.TogglePlazaSecurityAlert:FireAllClients(true)
+	
+	-- Instantly deploy a wave of tactical high-asset units via drop-pods
+	local dropNodes = workspace.Environment.Area2_Plaza.DropPodNodes:GetChildren()
+	for index = 1, math.min(#dropNodes, 4) do
+		task.spawn(function()
+			local targetSpawn = dropNodes[index].CFrame
+			Network.PlayCameraShakeGlobal:FireAllClients(3, 10)
+			
+			-- Drop Pod Cinematic Landing Frame
+			Network.SpawnVisualDropPod:FireAllClients(targetSpawn.Position)
+			task.wait(0.8)
+			
+			local enemyType = (index % 2 == 0) and "NeonAegis" or "InfiltratorV3"
+			local eliteUnit = ReplicatedStorage.Enemies[enemyType]:Clone()
+			eliteUnit.PrimaryPart.CFrame = targetSpawn
+			eliteUnit.Parent = workspace.Enemies
+			eliteUnit:SetAttribute("IsEnemy", true)
+			
+			if enemyType == "InfiltratorV3" then
+				ApplyActiveCamouflage(eliteUnit)
+			end
+			
+			table.insert(SecurityMatrix.SpawnedForces, eliteUnit)
+		end)
+	end
+end
+
+function ApplyActiveCamouflage(assassinModel)
+	task.spawn(function()
+		local hum = assassinModel:FindFirstChildOfClass("Humanoid")
+		while assassinModel and hum.Health > 0 do
+			task.wait(math.random(4, 7))
+			
+			-- Fade to complete transparency 
+			Network.ToggleStealthVFX:FireAllClients(assassinModel, true)
+			assassinModel:SetAttribute("IsCloaked", true)
+			hum.WalkSpeed = 24 -- Speed boost while unseen
+			
+			task.wait(4.0) -- Time spent tracking player from stealth
+			
+			-- Break stealth automatically to execute an ambush drop strike
+			if assassinModel and hum.Health > 0 then
+				assassinModel:SetAttribute("IsCloaked", false)
+				Network.ToggleStealthVFX:FireAllClients(assassinModel, false)
+				hum.WalkSpeed = 14
+			end
+		end
+	end)
+end
+
+InitializePlazaGrid()
