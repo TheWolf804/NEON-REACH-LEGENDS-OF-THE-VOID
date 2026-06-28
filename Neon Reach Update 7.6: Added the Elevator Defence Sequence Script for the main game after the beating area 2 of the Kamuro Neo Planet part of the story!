@@ -1,0 +1,116 @@
+-- ServerScriptService -> ElevatorCombatManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Elevator = {
+	Platform = workspace.Environment.Area2_Plaza.ExecutiveLift,
+	CurrentFloor = 1,
+	IsAscending = true,
+	WindShearForce = 35, -- Physical push back value near the edge
+	EnemiesOnBoard = 0
+}
+
+function StartElevatorAscent(player)
+	local char = player.Character
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	
+	-- Initiate the massive mechanical hum and background parallax scrolling
+	Network.PlayElevatorAudioLoop:FireClient(player, "HighSpeedVibration")
+	Network.SetParallaxScrollingSpeed:FireAllClients(120) -- Hyper-fast cityscape descent
+	
+	-- Seamlessly monitor the floor tracker and trigger interceptor waves
+	task.spawn(function()
+		while Elevator.IsAscending and Elevator.CurrentFloor < 100 do
+			task.wait(0.4) -- Time step per floor scaling
+			Elevator.CurrentFloor = Elevator.CurrentFloor + 1
+			Network.UpdateFloorUI:FireClient(player, Elevator.CurrentFloor)
+			
+			if Elevator.CurrentFloor == 25 then
+				TriggerInterceptorWave_Drones()
+			elseif Elevator.CurrentFloor == 60 then
+				TriggerInterceptorWave_Breachers()
+			elseif Elevator.CurrentFloor == 90 then
+				ExecuteEmergencyBrakeSequence(player)
+			end
+		end
+		
+		if Elevator.CurrentFloor >= 100 then
+			Elevator.IsAscending = false
+			ArriveAtPenthouse(player)
+		end
+	end)
+	
+	-- Apply the environmental Wind Shear hazard loop
+	task.spawn(function()
+		while Elevator.IsAscending do
+			task.wait(0.1)
+			if root and root.Parent then
+				local localPos = Elevator.Platform.CFrame:PointToObjectSpace(root.Position)
+				-- If the player gets too close to the unshielded left or right edge zones
+				if math.abs(localPos.X) > 12 then
+					root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + Vector3.new(Elevator.WindShearForce * math.sign(localPos.X), 0, 0)
+					char:SetAttribute("IsWindDragged", true)
+				else
+					char:SetAttribute("IsWindDragged", false)
+				end
+			end
+		end
+	end)
+end
+
+function TriggerInterceptorWave_Drones()
+	-- Spawn automated flying weapon platforms that float alongside the lift
+	for i = 1, 3 do
+		local drone = ReplicatedStorage.Enemies.SecurityDrone:Clone()
+		local offset = Vector3.new(i == 1 and -18 or 18, 5, math.random(-10, 10))
+		drone.PrimaryPart.Position = Elevator.Platform.Position + offset
+		drone.Parent = workspace.Enemies
+		
+		-- Drones fire tracking kinetic darts directly through the open framework
+		task.spawn(function()
+			while drone and drone:FindFirstChild("Humanoid") and drone.Humanoid.Health > 0 do
+				task.wait(1.5)
+				Network.ExecuteDroneStrafe:FireAllClients(drone, Elevator.Platform.Position)
+			end
+		end)
+	end
+end
+
+function TriggerInterceptorWave_Breachers()
+	-- Elite "Jetpack Breachers" slam directly onto the glass roof before shattering inside
+	Network.PlayCameraShakeGlobal:FireAllClients(4, 12)
+	Network.PlayVisualShatterEffect:FireAllClients(Elevator.Platform.Position + Vector3.new(0, 10, 0))
+	
+	task.wait(0.6)
+	
+	for i = 1, 3 do
+		local breacher = ReplicatedStorage.Enemies.JetpackBreacher:Clone()
+		breacher.PrimaryPart.CFrame = Elevator.Platform.CFrame * CFrame.new(math.random(-8, 8), 0, math.random(-8, 8))
+		breacher.Parent = workspace.Enemies
+		
+		-- Hook up aggressive AI logic
+		breacher.Humanoid:MoveTo(workspace.CurrentCamera.CoordinateFrame.Position)
+	end
+end
+
+function ExecuteEmergencyBrakeSequence(player)
+	-- The final defense mechanism: The syndicate cuts the power line, triggering an emergency lock down drop
+	Elevator.WindShearForce = 0
+	Network.SetParallaxScrollingSpeed:FireAllClients(0) -- Visual screeching halt
+	Network.PlayElevatorAudioLoop:FireAllClients("CableScreechHalt")
+	Network.PlayCameraShakeGlobal:FireAllClients(6, 20)
+	
+	-- Gravity flips! Player is put into a temporary anti-gravity float frame
+	local char = player.Character
+	if char and char:FindFirstChild("HumanoidRootPart") then
+		char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 45, 0)
+		char:SetAttribute("StunState", "ZeroGravityFloat")
+	end
+end
+
+function ArriveAtPenthouse(player)
+	Network.UpdateFloorUI:FireClient(player, 100)
+	Network.PlayCinematicTransition:FireClient(player, "PenthouseArrival")
+end
