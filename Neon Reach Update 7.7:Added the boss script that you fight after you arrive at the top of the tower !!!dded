@@ -1,0 +1,133 @@
+-- ServerScriptService -> BossRenVanceAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Boss = script.Parent
+local Humanoid = Boss:FindFirstChildOfClass("Humanoid")
+local Root = Boss:FindFirstChild("HumanoidRootPart")
+
+local IsBladeOverclocked = false
+local ActiveAction = false
+local PredictionCooldown = false
+
+function InitializeVanceFight()
+	Humanoid.MaxHealth = 3500
+	Humanoid.Health = 3500
+	
+	-- Connect to the hit-detection frame to process his predictive counter-parry matrix
+	Boss:SetAttribute("IsPredicting", true)
+	
+	Humanoid.HealthChanged:Connect(function(currentHealth)
+		if currentHealth <= 2100 and not IsBladeOverclocked then
+			ActivateDragonOverdrive()
+		end
+	end)
+	
+	task.spawn(RunVanceAIContextLoop)
+end
+
+function RunVanceAIContextLoop()
+	while Boss and Humanoid.Health > 0 do
+		task.wait(0.2)
+		
+		if ActiveAction or Boss:GetAttribute("StunState") == "HardKnockdown" then
+			continue
+		end
+		
+		local targetPlayer = FindNearestTarget()
+		if targetPlayer and targetPlayer.Character then
+			local pRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			local distance = pRoot and (pRoot.Position - Root.Position).Magnitude or 999
+			
+			if distance <= 8 then
+				ExecutePlasmaIaidoCut(targetPlayer.Character)
+			else
+				if distance > 20 and not IsBladeOverclocked then
+					ExecuteThrusterBlinkTackle(pRoot)
+				else
+					Humanoid:MoveTo(pRoot.Position)
+				end
+			end
+		end
+	end
+end
+
+function ProcessIncomingPlayerAttack(playerChar, playerStyle)
+	-- COUNTER MECHANIC: If player attacks with slow Brawler style, Vance parries automatically
+	if Boss:GetAttribute("IsPredicting") and not PredictionCooldown then
+		if playerStyle == "Brawler" or playerStyle == "Beast" then
+			PredictionCooldown = true
+			ActiveAction = true
+			
+			-- Flawless cinematic parry execution
+			Network.PlayBossAnimation:FireAllClients(Boss, "MonoclePredictParry")
+			Network.PlayBlockEffect:FireAllClients(Root.Position, "CyberParrySparks")
+			task.wait(0.2)
+			
+			-- Instant counter-slash that knocks the player flat
+			playerChar.Humanoid:TakeDamage(35)
+			playerChar:SetAttribute("StunState", "HardKnockdown")
+			
+			task.wait(0.8)
+			ActiveAction = false
+			task.delay(4.0, function() PredictionCooldown = false end) -- Parry internal cooldown
+			return false -- Negate player damage
+		end
+	end
+	return true -- Damage goes through if using fast Rush style
+end
+
+function ExecutePlasmaIaidoCut(playerChar)
+	ActiveAction = true
+	Network.PlayBossAnimation:FireAllClients(Boss, "IaidoDrawWindup")
+	task.wait(0.25) -- Blindingly fast tell frame
+	
+	if (Root.Position - playerChar.HumanoidRootPart.Position).Magnitude <= 9 then
+		if playerChar:GetAttribute("IsDashing") and playerChar:GetAttribute("CurrentStyle") == "Rush" then
+			-- Player successfully phased through the slash vector
+			Network.PlayBlockEffect:FireAllClients(playerChar.HumanoidRootPart.Position, "PerfectDodgeShadow")
+		else
+			playerChar.Humanoid:TakeDamage(IsBladeOverclocked and 40 or 25)
+			Network.ApplyBleedStatus:FireClient(game.Players:GetPlayerFromCharacter(playerChar), 4)
+		end
+	end
+	
+	task.wait(IsBladeOverclocked and 0.2 or 0.6)
+	ActiveAction = false
+end
+
+function ExecuteThrusterBlinkTackle(playerRoot)
+	ActiveAction = true
+	Network.PlayBossAnimation:FireAllClients(Boss, "ThrusterBlinkCharge")
+	task.wait(0.1)
+	
+	-- Linearly teleport/dash behind the player using high velocity
+	local targetPos = playerRoot.Position - (playerRoot.CFrame.LookVector * 4)
+	Root.CFrame = CFrame.new(targetPos, playerRoot.Position)
+	
+	Network.PlayBreakEffect:FireAllClients(Root.Position, "SonicBoomDisplacement")
+	ExecutePlasmaIaidoCut(playerRoot.Parent)
+	ActiveAction = false
+end
+
+function ActivateDragonOverdrive()
+	IsBladeOverclocked = true
+	ActiveAction = true
+	Boss:SetAttribute("IsPredicting", false) -- Switches prediction matrix out for sheer velocity
+	Humanoid.WalkSpeed = 26
+	
+	Network.PlayVanceOverdriveCinematic:FireAllClients(Boss)
+	
+	-- Overload the perimeter helipad lights to create periodic electric hazards
+	Network.TriggerHelipadGridOverload:FireAllClients()
+	
+	task.wait(1.5)
+	ActiveAction = false
+end
+
+function FindNearestTarget()
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1] or nil
+end
+
+InitializeVanceFight()
