@@ -1,0 +1,164 @@
+-- ServerScriptService -> FinalBossPatriarchAI
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Boss = script.Parent
+local Humanoid = Boss:FindFirstChildOfClass("Humanoid")
+local Root = Boss:FindFirstChild("HumanoidRootPart")
+
+local CurrentPhase = 1
+local ActiveCombo = false
+local DecompressionForce = 22 -- Pull force toward the broken window
+
+function InitializePatriarchFight()
+	Humanoid.MaxHealth = 5000
+	Humanoid.Health = 5000
+	Boss:SetAttribute("CurrentBossStyle", "Sovereign")
+	
+	Humanoid.HealthChanged:Connect(function(currentHealth)
+		if currentHealth <= 3500 and CurrentPhase == 1 then
+			TransitionToPhase2()
+		elseif currentHealth <= 1500 and CurrentPhase == 2 then
+			TransitionToPhase3()
+		end
+	end)
+	
+	task.spawn(RunPatriarchLogicEngine)
+end
+
+function RunPatriarchLogicEngine()
+	while Boss and Humanoid.Health > 0 do
+		task.wait(0.15)
+		
+		if ActiveCombo or Boss:GetAttribute("StunState") == "HardKnockdown" then
+			continue
+		end
+		
+		local targetPlayer = FindNearestTarget()
+		if targetPlayer and targetPlayer.Character then
+			local pRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			local pStyle = targetPlayer.Character:GetAttribute("CurrentStyle")
+			local distance = pRoot and (pRoot.Position - Root.Position).Magnitude or 999
+			
+			-- DYNAMIC STANCE ADAPTATION (Phase 1 & 2)
+			if CurrentPhase == 1 then
+				if pStyle == "Rush" then
+					Boss:SetAttribute("CurrentBossStyle", "Sweeper") -- Switches to wide counters
+				else
+					Boss:SetAttribute("CurrentBossStyle", "Sovereign")
+				end
+			end
+			
+			-- COMBAT ENGAGEMENT VECTOR
+			if distance <= 8 then
+				ExecuteStyleAppropriateCombo(targetPlayer.Character)
+			else
+				if CurrentPhase == 2 and distance > 25 and math.random(1, 2) == 1 then
+					ExecuteRailUnsheatheDash(pRoot)
+				else
+					Humanoid:MoveTo(pRoot.Position)
+				end
+			end
+		end
+	end
+end
+
+function ExecuteStyleAppropriateCombo(playerChar)
+	ActiveCombo = true
+	local bossStyle = Boss:GetAttribute("CurrentBossStyle")
+	
+	if bossStyle == "Sovereign" then
+		Network.PlayBossAnimation:FireAllClients(Boss, "CanePummel_Combo")
+		task.wait(0.4)
+		if (Root.Position - playerChar.HumanoidRootPart.Position).Magnitude <= 8 then
+			playerChar.Humanoid:TakeDamage(30)
+		end
+	elseif bossStyle == "Sweeper" then
+		Network.PlayBossAnimation:FireAllClients(Boss, "WideCaneSpin_Counter")
+		task.wait(0.2) -- Fast activation to catch dashing players
+		if (Root.Position - playerChar.HumanoidRootPart.Position).Magnitude <= 12 then
+			playerChar.Humanoid:TakeDamage(25)
+			playerChar.HumanoidRootPart.AssemblyLinearVelocity = (playerChar.HumanoidRootPart.Position - Root.Position).Unit * 45
+		end
+	elseif bossStyle == "RailBlade" then
+		Network.PlayBossAnimation:FireAllClients(Boss, "RailKatanaFlurry")
+		task.wait(0.5)
+		if (Root.Position - playerChar.HumanoidRootPart.Position).Magnitude <= 9 then
+			-- Rail-blade deals heavy block-breaking damage
+			playerChar.Humanoid:TakeDamage(45)
+		end
+	end
+	
+	task.wait(0.6)
+	ActiveCombo = false
+end
+
+function ExecuteRailUnsheatheDash(playerRoot)
+	ActiveCombo = true
+	Network.PlayBossAnimation:FireAllClients(Boss, "RailUnsheathe_Charge")
+	
+	-- Visual rail charging lines
+	Network.PlayBreakEffect:FireAllClients(Root.Position, "MagneticRailHum")
+	task.wait(0.4) -- Tell window for the player to dodge left/right
+	
+	-- Sonic dash through the player position
+	local dashDirection = (playerRoot.Position - Root.Position).Unit
+	Root.AssemblyLinearVelocity = dashDirection * 150
+	
+	task.wait(0.1)
+	if (Root.Position - playerRoot.Position).Magnitude <= 15 then
+		playerRoot.Parent.Humanoid:TakeDamage(60) -- Catastrophic damage if hit cleanly
+		playerRoot.Parent:SetAttribute("StunState", "HardKnockdown")
+	end
+	
+	task.wait(0.8) -- Cooling recovery window
+	ActiveCombo = false
+end
+
+function TransitionToPhase2()
+	CurrentPhase = 2
+	ActiveCombo = true
+	Boss:SetAttribute("CurrentBossStyle", "RailBlade")
+	Humanoid.WalkSpeed = 18
+	
+	Network.PlayPatriarchPhase2Cinematic:FireAllClients(Boss)
+	task.wait(3.0)
+	ActiveCombo = false
+end
+
+function TransitionToPhase3()
+	CurrentPhase = 3
+	ActiveCombo = true
+	Humanoid.WalkSpeed = 22
+	
+	-- Catastrophic glass shatter event
+	Network.PlayPatriarchPhase3Cinematic:FireAllClients(Boss)
+	Network.ShatterSkyLoungeWindows:FireAllClients()
+	
+	-- Initiate global physical wind pull loop for Phase 3
+	task.spawn(function()
+		local windowVector = workspace.Environment.SkyLounge.BrokenWindowNode.Position
+		while Boss and Humanoid.Health > 0 do
+			task.wait(0.1)
+			local players = game.Players:GetPlayers()
+			if #players > 0 and players[1].Character then
+				local pRoot = players[1].Character:FindFirstChild("HumanoidRootPart")
+				if pRoot then
+					-- Pull player toward the open air gap
+					local pullDirection = (windowVector - pRoot.Position).Unit
+					pRoot.AssemblyLinearVelocity = pRoot.AssemblyLinearVelocity + (pullDirection * DecompressionForce)
+				end
+			end
+		end
+	end)
+	
+	task.wait(2.5)
+	ActiveCombo = false
+end
+
+function FindNearestTarget()
+	local players = game.Players:GetPlayers()
+	return #players > 0 and players[1] or nil
+end
+
+InitializePatriarchFight()
