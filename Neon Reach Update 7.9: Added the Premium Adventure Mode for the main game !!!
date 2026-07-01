@@ -1,0 +1,122 @@
+-- ServerScriptService -> PremiumAdventureController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local PremiumAdventure = {
+	IsPostGameActive = true,
+	SatoSpawnCooldown = 120 -- Seconds between sudden boss ambushes
+}
+
+function InitializePremiumAdventure(player)
+	local char = player.Character
+	if not char then return end
+	
+	-- 1. Inject the Legendary Dragon Style configuration into the client
+	char:SetAttribute("DragonStyleUnlocked", true)
+	Network.UnlockEndgameUI:FireClient(player, "Dragon_Style")
+	
+	-- Display Post-Game Title Card Matrix
+	Network.DisplayLocationCard:FireClient(player, "PREMIUM ADVENTURE MODE", "Free-Roam Sandbox Unlocked")
+	Network.PlayZoneBGM:FireClient(player, "Premium_Roaming_Funk")
+	
+	-- 2. Connect the Tiger Drop Counter Monitor
+	char:GetAttributeChangedSignal("CurrentStyle"):Connect(function()
+		local currentStyle = char:GetAttribute("CurrentStyle")
+		if currentStyle == "Dragon" then
+			EnableTigerDropLogic(player, char)
+		end
+	end)
+	
+	-- 3. Boot up the dynamic "Sato Everywhere" stalking engine
+	task.spawn(function()
+		while PremiumAdventure.IsPostGameActive and char and char.Parent do
+			task.wait(PremiumAdventureSatoCooldownGrid())
+			ExecuteSuddenSatoAmbush(player, char)
+		end
+	end)
+end
+
+function EnableTigerDropLogic(player, character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	
+	-- Listen for client-side perfect block timings while in Dragon Style
+	local perfectBlockConnection
+	perfectBlockConnection = character:GetAttributeChangedSignal("IsPerfectGuarding"):Connect(function()
+		if character:GetAttribute("IsPerfectGuarding") and character:GetAttribute("CurrentStyle") == "Dragon" then
+			-- Find closest attacking enemy
+			local closestEnemy = FindClosestAttackingEnemy(root.Position)
+			if closestEnemy then
+				local eRoot = closestEnemy:FindFirstChild("HumanoidRootPart")
+				if (eRoot.Position - root.Position).Magnitude <= 8 then
+					-- EXECUTE TIGER DROP: Complete framing invincibility during the punch animation
+					character:SetAttribute("IsInvincible", true)
+					Network.PlayPlayerAnimation:FireAllClients(character, "Dragon_TigerDrop")
+					Network.PlayBreakEffect:FireAllClients(eRoot.Position, "TigerDropShockwave")
+					
+					closestEnemy.Humanoid:TakeDamage(180) -- Massive structural piercing damage
+					eRoot.AssemblyLinearVelocity = (eRoot.Position - root.Position).Unit * 120 -- Launches them away
+					
+					task.wait(0.4)
+					character:SetAttribute("IsInvincible", false)
+				end
+			end
+		end
+	end)
+end
+
+function ExecuteSuddenSatoAmbush(player, character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	
+	-- Daisuke Sato has survived! He stalks you throughout the city in various disguises
+	local ambushTypes = {"NoodleChef", "VendingMachine", "TrashCanHideout"}
+	local selectedAmbush = ambushTypes[math.random(1, #ambushTypes)]
+	
+	local spawnOffset = root.CFrame * CFrame.new(math.random(-15, 15), 0, -25)
+	
+	local satoAmbushInstance = ReplicatedStorage.Enemies.SatoStalker:Clone()
+	satoAmbushInstance:SetAttribute("AmbushType", selectedAmbush)
+	satoAmbushInstance.PrimaryPart.CFrame = spawnOffset
+	satoAmbushInstance.Parent = workspace.Enemies
+	
+	-- When player gets close, Sato drops the disguise and yells an audio trigger
+	task.spawn(function()
+		while satoAmbushInstance and satoAmbushInstance.Humanoid.Health > 0 do
+			task.wait(0.5)
+			if (satoAmbushInstance.PrimaryPart.Position - root.Position).Magnitude <= 12 then
+				Network.TriggerSatoAmbushCinematic:FireAllClients(satoAmbushInstance, selectedAmbush)
+				break
+			end
+		end
+	end)
+end
+
+function PremiumAdventureSatoCooldownGrid()
+	return math.random(60, PremiumAdventure.SatoSpawnCooldown)
+end
+
+function FindClosestAttackingEnemy(pos)
+	local enemies = workspace.Enemies:GetChildren()
+	local closest = nil
+	local minDist = 40
+	for _, e in pairs(enemies) do
+		if e:FindFirstChild("HumanoidRootPart") and e.Humanoid.Health > 0 then
+			local d = (e.HumanoidRootPart.Position - pos).Magnitude
+			if d < minDist then
+				minDist = d
+				closest = e
+			end
+		end
+	end
+	return closest
+end
+
+game.Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(char)
+		task.wait(1.0)
+		-- Check if player has cleared the main story flag from Datastores
+		if player:GetAttribute("StoryCleared") == true then
+			InitializePremiumAdventure(player)
+		end
+	end)
+end)
