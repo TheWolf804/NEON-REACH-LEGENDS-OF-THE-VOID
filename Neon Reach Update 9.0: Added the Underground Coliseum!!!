@@ -1,0 +1,115 @@
+-- ServerScriptService -> UndergroundColiseumManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local ColiseumData = {
+	IsMatchActive = false,
+	ActiveModifier = "None",
+	CurrentRound = 1,
+	Roster = {
+		[1] = {Name = "Overclocked Sato", Code = "SatoStalker", HP = 4000, Speed = 22},
+		[2] = {Name = "Vance Shadow-Clone", Code = "JetpackBreacher", HP = 3000, Speed = 28},
+		[3] = {Name = "The Apex Cyber-Mecha", Code = "ExoEnforcer", HP = 6000, Speed = 12}
+	}
+}
+
+function StartColiseumGauntlet(player, tournamentTier)
+	if ColiseumData.IsMatchActive then return end
+	ColiseumData.IsMatchActive = true
+	ColiseumData.CurrentRound = 1
+	
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root or not hum then return end
+	
+	-- 1. Apply Selected Tournament Modifier
+	local modifiers = {"BleedingEdge", "StanceLockdown", "OverchargedGrid"}
+	ColiseumData.ActiveModifier = modifiers[math.random(1, #modifiers)]
+	char:SetAttribute("ActiveColiseumModifier", ColiseumData.ActiveModifier)
+	
+	-- Teleport player to the center of the subterranean steel cage
+	root.CFrame = workspace.Environment.Coliseum.CageSpawnNode.CFrame
+	Network.ToggleColiseumUI:FireClient(player, true, ColiseumData.ActiveModifier)
+	Network.PlayZoneBGM:FireClient(player, "Coliseum_Industrial_Metal")
+	
+	-- Enforce Modifier constraints safely
+	if ColiseumData.ActiveModifier == "StanceLockdown" then
+		-- Hard-lock the player into Brawler Style for this run
+		char:SetAttribute("CurrentStyle", "Brawler")
+		Network.LockStyleWheel:FireClient(player, "Brawler")
+	end
+	
+	task.wait(2.0) -- Let the arena gates open and crowd audio swell
+	
+	-- 2. Execute Round Looping Grid
+	ExecuteColiseumRound(player, char)
+end
+
+function ExecuteColiseumRound(player, playerChar)
+	local roundInfo = ColiseumData.Roster[ColiseumData.CurrentRound]
+	if not roundInfo then
+		-- Gauntlet Cleared Flawlessly!
+		EndColiseumTournament(player, true)
+		return
+	end
+	
+	Network.UpdateColiseumRoundHUD:FireClient(player, ColiseumData.CurrentRound, roundInfo.Name)
+	
+	-- Spawn the tuned Gladiator glint entry
+	local enemySpawn = workspace.Environment.Coliseum.EnemySpawnNode.CFrame
+	local gladiator = ReplicatedStorage.Enemies[roundInfo.Code]:Clone()
+	gladiator.Name = roundInfo.Name
+	gladiator.PrimaryPart.CFrame = enemySpawn
+	
+	local eHum = gladiator:FindFirstChildOfClass("Humanoid")
+	eHum.MaxHealth = roundInfo.HP
+	eHum.Health = roundInfo.HP
+	eHum.WalkSpeed = roundInfo.Speed
+	gladiator:SetAttribute("IsColiseumGladiator", true)
+	
+	-- Monitor gladiator health to sequence the next round trigger
+	eHum.Died:Connect(function()
+		gladiator:Destroy()
+		Network.PlayColiseumCrowdCheer:FireAllClients()
+		
+		if ColiseumData.IsMatchActive then
+			ColiseumData.CurrentRound = ColiseumData.CurrentRound + 1
+			task.wait(3.0) -- Intermission delay
+			
+			-- If "BleedingEdge" is active, do not restore player health between matches
+			if playerChar:GetAttribute("ActiveColiseumModifier") ~= "BleedingEdge" then
+				playerChar.Humanoid.Health = math.min(playerChar.Humanoid.MaxHealth, playerChar.Humanoid.Health + 200)
+			end
+			
+			ExecuteColiseumRound(player, playerChar)
+		end
+	end)
+	
+	gladiator.Parent = workspace.Enemies
+end
+
+function EndColiseumTournament(player, isVictory)
+	ColiseumData.IsMatchActive = false
+	local char = player.Character
+	
+	if char then
+		char:SetAttribute("ActiveColiseumModifier", "None")
+		Network.LockStyleWheel:FireClient(player, "UnlockAll")
+	end
+	
+	Network.ToggleColiseumUI:FireClient(player, false)
+	
+	if isVictory then
+		-- Award legendary endgame currency used to buy golden cosmetics and skill points
+		local currentPoints = player:GetAttribute("ColiseumPoints") or 0
+		player:SetAttribute("ColiseumPoints", currentPoints + 500)
+		Network.DisplayLocationCard:FireClient(player, "VICTORY", "+500 COLISEUM TOKENS AWARDED")
+	end
+	
+	-- Teleport back out to the Obsidian Plaza Lobby
+	if char and char:FindFirstChild("HumanoidRootPart") then
+		char.HumanoidRootPart.CFrame = workspace.Environment.Area2_Plaza.ColiseumExitNode.CFrame
+		Network.PlayZoneBGM:FireClient(player, "Premium_Roaming_Funk")
+	end
+end
