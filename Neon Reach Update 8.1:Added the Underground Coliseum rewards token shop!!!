@@ -1,0 +1,54 @@
+-- ServerScriptService -> ColiseumRewardsServer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+-- Canonical Prize Database
+local RewardDatabase = {
+	["ScrollOfTheTiger"]   = {Cost = 1500, Type = "Technique", Attribute = "TigerDropBuff"},
+	["KevlarKimono"]       = {Cost = 2500, Type = "Gear",      Attribute = "MaxArmorBuff"},
+	["CyberMonocle"]       = {Cost = 3500, Type = "Cosmetic",  ItemName = "VanceMonocle"},
+	["DragonsHeart"]       = {Cost = 5000, Type = "Technique", Attribute = "InfiniteStaminaCounter"},
+	["VioletOverdrive"]    = {Cost = 7500, Type = "Cosmetic",  ItemName = "VioletAuraEffect"}
+}
+
+Network.RequestRewardPurchase.OnServerInvoke = function(player, itemId)
+	local itemData = RewardDatabase[itemId]
+	if not itemData then return false, "Item does not exist." end
+	
+	-- Verify Player Currency Balance
+	local currentTokens = player:GetAttribute("ColiseumPoints") or 0
+	if currentTokens < itemData.Cost then
+		return false, "Insufficient Coliseum Tokens." end
+	
+	-- Double-buy protection check
+	local inventory = player:FindFirstChild("ColiseumInventory")
+	if inventory and inventory:FindFirstChild(itemId) then
+		return false, "You already own this reward."
+	end
+	
+	-- Deduct Currency securely on the server
+	player:SetAttribute("ColiseumPoints", currentTokens - itemData.Cost)
+	
+	-- Grant the Reward item to the player
+	if not inventory then
+		inventory = Instance.new("Folder")
+		inventory.Name = "ColiseumInventory"
+		inventory.Parent = player
+	end
+	
+	local itemValue = Instance.new("BoolValue")
+	itemValue.Name = itemId
+	itemValue.Value = true
+	itemValue.Parent = inventory
+	
+	-- Apply permanent stats or cosmetic flags instantly
+	if itemData.Type == "Technique" or itemData.Type == "Gear" then
+		player:SetAttribute(itemData.Attribute, true)
+	elseif itemData.Type == "Cosmetic" then
+		-- Fire a client payload event to refresh their visual outfit locker
+		Network.UnlockCosmeticVisual:FireClient(player, itemData.ItemName)
+	end
+	
+	-- Log successful transaction data back to the client UI loop
+	return true, "Purchase successful!"
+end
