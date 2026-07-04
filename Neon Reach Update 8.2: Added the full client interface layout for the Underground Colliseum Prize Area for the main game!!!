@@ -1,0 +1,130 @@
+-- LocalScript -> ShopInterfaceController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+-- UI Element Pointers
+local MainFrame = script.Parent
+local ItemGrid = MainFrame:WaitForChild("ItemGrid")
+local InfoPanel = MainFrame:WaitForChild("InfoPanel")
+local TokenBalanceLabel = MainFrame:WaitForChild("TokenBalance")
+
+local ItemTitle = InfoPanel:WaitForChild("ItemTitle")
+local ItemCost = InfoPanel:WaitForChild("ItemCost")
+local PurchaseButton = InfoPanel:WaitForChild("PurchaseButton")
+
+-- Current Selection State Tracker
+local SelectedItemId = nil
+
+-- Client-Side Item Details Registry (Matches the server database)
+local DisplayCatalog = {
+	["ScrollOfTheTiger"] = {Name = "Scroll of the Tiger", Cost = 1500, Desc = "Expands the active active counter frame for the Tiger Drop by +4 frames."},
+	["KevlarKimono"]     = {Name = "Kevlar Kimono Plating", Cost = 2500, Desc = "Permanently boosts maximum armor thresholds by +25% while in Beast Style."},
+	["CyberMonocle"]     = {Name = "Cybernetic Monocle (Replica)", Cost = 3500, Desc = "Cosmetic Head Attachment. Replaces default gear with Vance's glowing scanning eye."},
+	["DragonsHeart"]     = {Name = "The Dragon's Heart", Cost = 5000, Desc = "Legendary Mastery Technique. Instantly maxes out Heat meter on a successful perfect counter."},
+	["VioletOverdrive"]  = {Name = "Violet Overdrive Aura", Cost = 7500, Desc = "Cosmetic Transmog. Morphs the default gold Dragon Style energy into a crackling violet flame aura."}
+}
+
+-- Tween Optimization Presets (Cyberpunk Neon Flash)
+local TargetGlowColor = Color3.fromRGB(180, 50, 255)
+local DefaultTextColor = Color3.fromRGB(255, 255, 255)
+local TransTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Synchronize HUD token balance indicator cleanly
+local function UpdateTokenHUD()
+	local points = LocalPlayer:GetAttribute("ColiseumPoints") or 0
+	TokenBalanceLabel.Text = string.format("TOKENS: %s C$", tostring(points))
+end
+
+-- Update layout selection parameters dynamically on click/hover
+local function FocusItemDisplay(itemId)
+	local itemData = DisplayCatalog[itemId]
+	if not itemData then return end
+	
+	SelectedItemId = itemId
+	ItemTitle.Text = string.upper(itemData.Name)
+	ItemCost.Text = string.format("COST: %s C$", tostring(itemData.Cost))
+	InfoPanel:WaitForChild("ItemDescription").Text = itemData.Desc
+	
+	-- Verify if player can afford item on the client side
+	local points = LocalPlayer:GetAttribute("ColiseumPoints") or 0
+	if points >= itemData.Cost then
+		PurchaseButton.BackgroundColor3 = Color3.fromRGB(0, 170, 100) -- Affordable green
+		PurchaseButton.Text = "AUTHORIZE PURCHASE"
+	else
+		PurchaseButton.BackgroundColor3 = Color3.fromRGB(150, 20, 40) -- Locked red
+		PurchaseButton.Text = "INSUFFICIENT FUNDS"
+	end
+end
+
+-- Assemble interactive button layout grids
+local function PopulateShopGrid()
+	-- Clear temporary artifacts
+	for _, child in pairs(ItemGrid:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+	
+	for itemId, data in pairs(DisplayCatalog) do
+		local card = Instance.new("TextButton")
+		card.Name = itemId
+		card.Size = UDim2.new(0, 120, 0, 120)
+		card.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+		card.BorderColor3 = Color3.fromRGB(60, 60, 70)
+		card.BorderSizePixel = 2
+		card.Font = Enum.Font.Code
+		card.TextColor3 = DefaultTextColor
+		card.TextSize = 14
+		card.TextWrapped = true
+		card.Text = data.Name
+		card.Parent = ItemGrid
+		
+		-- Neon Reactive Hover Animations
+		card.MouseEnter:Connect(function()
+			TweenService:Create(card, TransTweenInfo, {BorderColor3 = TargetGlowColor, BackgroundColor3 = Color3.fromRGB(35, 25, 45)}):Play()
+		end)
+		
+		card.MouseLeave:Connect(function()
+			TweenService:Create(card, TransTweenInfo, {BorderColor3 = Color3.fromRGB(60, 60, 70), BackgroundColor3 = Color3.fromRGB(20, 20, 25)}):Play()
+		end)
+		
+		card.MouseButton1Click:Connect(function()
+			FocusItemDisplay(itemId)
+		end)
+	end
+end
+
+-- Hook up secure purchase network routing
+PurchaseButton.MouseButton1Click:Connect(function()
+	if not SelectedItemId then return end
+	
+	PurchaseButton.Active = false
+	PurchaseButton.Text = "PROCESSING SECURE TRANSACTION..."
+	
+	-- Invoke authoritative backend validation script
+	local success, message = Network.RequestRewardPurchase:InvokeServer(SelectedItemId)
+	
+	if success then
+		PurchaseButton.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+		PurchaseButton.Text = "SUCCESSFULLY UNLOCKED"
+		UpdateTokenHUD()
+		
+		-- Neon flash victory animation sequence
+		local flash = TweenService:Create(MainFrame, TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, true), {BackgroundColor3 = Color3.fromRGB(50, 20, 70)})
+		flash:Play()
+	else
+		PurchaseButton.BackgroundColor3 = Color3.fromRGB(255, 0, 50)
+		PurchaseButton.Text = string.upper(message)
+	end
+	
+	task.wait(1.5)
+	if SelectedItemId then FocusItemDisplay(SelectedItemId) end
+	PurchaseButton.Active = true
+end)
+
+-- Initialize listeners
+LocalPlayer:GetAttributeChangedSignal("ColiseumPoints"):Connect(UpdateTokenHUD)
+UpdateTokenHUD()
+PopulateShopGrid()
