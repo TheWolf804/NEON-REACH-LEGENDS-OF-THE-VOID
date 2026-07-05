@@ -1,0 +1,108 @@
+-- ServerScriptService -> SatoEverywhereVendingAmbush
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local AmbushSystem = {
+	MachineProp = workspace.Environment.Area1_Slums:WaitForChild("SuspectVendingMachine"),
+	TriggerRadius = 7,
+	IsTriggered = false
+}
+
+function InitializeVendingTrap()
+	local triggerPart = AmbushSystem.MachineProp:WaitForChild("TriggerZone")
+	
+	triggerPart.Touched:Connect(function(hitPart)
+		if AmbushSystem.IsTriggered then return end
+		
+		local char = hitPart.Parent
+		local player = game.Players:GetPlayerFromCharacter(char)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		
+		if player and hum and hum.Health > 0 then
+			-- Verify the player has cleared the main game and entered Premium Adventure
+			if player:GetAttribute("StoryCleared") == true then
+				AmbushSystem.IsTriggered = true
+				ExecuteSatoVendingSurprise(player, char)
+			end
+		end
+	end)
+end
+
+function ExecuteSatoVendingSurprise(player, playerChar)
+	local pRoot = playerChar:FindFirstChild("HumanoidRootPart")
+	if not pRoot then return end
+	
+	-- 1. Freeze player controls briefly for the dynamic jump-scare tell frame
+	playerChar:SetAttribute("InCinematicMode", true)
+	playerChar.Humanoid.WalkSpeed = 0
+	
+	-- 2. Sudden Mechanical Exploded Frame
+	Network.PlayElevatorAudioLoop:FireClient(player, "MetalCrushScreech") -- Reuse structural snap sound
+	Network.PlayCameraShakeGlobal:FireAllClients(5, 20)
+	
+	-- Shatter the vending machine model panels physically
+	local frontPanel = AmbushSystem.MachineProp:FindFirstChild("FrontPanel")
+	if frontPanel then
+		frontPanel.CanCollide = false
+		frontPanel.Transparency = 1
+		Network.PlayBreakEffect:FireAllClients(frontPanel.Position, "GlassShatterNeon")
+	end
+	
+	task.wait(0.1) -- Blindingly fast delay
+	
+	-- 3. Spawn Sato directly out of the machine chassis core
+	local sato = ReplicatedStorage.Enemies.SatoStalker:Clone()
+	sato.Name = "Sato (Vending Master)"
+	sato.PrimaryPart.CFrame = AmbushSystem.MachineProp.PrimaryPart.CFrame * CFrame.new(0, 0, -2)
+	sato.Parent = workspace.Enemies
+	
+	local sHum = sato:FindFirstChildOfClass("Humanoid")
+	sHum.MaxHealth = 4500
+	sHum.Health = 4500
+	sHum.WalkSpeed = 24
+	
+	-- Trigger his classic, dramatic voice text card screen overlay
+	Network.DisplayLocationCard:FireClient(player, "FOUND YOU, INMATE!", "Daisuke Sato: Vending Machine Style")
+	Network.PlayZoneBGM:FireClient(player, "Sato_Everywhere_Funk_Theme")
+	
+	-- 4. Execute the Ambush Drop-Kick Attack Vector
+	Network.PlayEnemyAttackAnimation:FireAllClients(sato, "VendingDropKick")
+	
+	-- Throw Sato linearly straight at the player's chest framework
+	local forceVector = (pRoot.Position - sato.HumanoidRootPart.Position).Unit
+	sato.HumanoidRootPart.AssemblyLinearVelocity = forceVector * 70 + Vector3.new(0, 15, 0)
+	
+	task.wait(0.4) -- Reaction window before hit processing runs
+	
+	-- Return combat framework to the user
+	playerChar:SetAttribute("InCinematicMode", false)
+	playerChar.Humanoid.WalkSpeed = 16
+	
+	if (sato.HumanoidRootPart.Position - pRoot.Position).Magnitude <= 8 then
+		-- Check if player quick-swapped to Dragon Style and mashed the Tiger Drop frame counter!
+		if playerChar:GetAttribute("CurrentStyle") == "Dragon" and playerChar:GetAttribute("IsPerfectGuarding") then
+			-- The counter successfully stops Sato's momentum entirely!
+			Network.PlayBlockEffect:FireAllClients(pRoot.Position, "PerfectGuardSpark")
+		else
+			playerChar.Humanoid:TakeDamage(35)
+			playerChar:SetAttribute("StunState", "HardKnockdown")
+		end
+	end
+	
+	-- Connect standard boss cleanup on defeat
+	sHum.Died:Connect(function()
+		task.wait(1.5)
+		Network.DisplayLocationCard:FireClient(player, "AMBUSH CRUSHED", "Sato has fled the sector to hide elsewhere.")
+		Network.PlayZoneBGM:FireClient(player, "Premium_Roaming_Funk")
+		sato:Destroy()
+		
+		-- Reset ambush parameters after a cool down duration
+		task.delay(180, function()
+			AmbushSystem.IsTriggered = false
+			if frontPanel then frontPanel.Transparency = 0 frontPanel.CanCollide = true end
+		end)
+	end)
+end
+
+InitializeVendingTrap()
