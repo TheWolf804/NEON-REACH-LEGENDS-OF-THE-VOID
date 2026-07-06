@@ -1,0 +1,107 @@
+-- ServerScriptService -> SatoEverywhereTrashAmbush
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local TrashAmbush = {
+	ContainerProp = workspace.Environment.Area1_Slums:WaitForChild("SuspectTrashBin"),
+	CheckRadius = 6.5,
+	Active = false
+}
+
+function InitializeTrashTrap()
+	local sensor = TrashAmbush.ContainerProp:WaitForChild("ProximitySensor")
+	
+	sensor.Touched:Connect(function(hit)
+		if TrashAmbush.Active then return end
+		
+		local char = hit.Parent
+		local player = game.Players:GetPlayerFromCharacter(char)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		
+		if player and hum and hum.Health > 0 and player:GetAttribute("StoryCleared") == true then
+			TrashAmbush.Active = true
+			DeployTrashSato(player, char)
+		end
+	end)
+end
+
+function DeployTrashSato(player, playerChar)
+	local pRoot = playerChar:FindFirstChild("HumanoidRootPart")
+	if not pRoot then return end
+	
+	-- 1. Cinematics: Force stop player momentum for the scare framing
+	playerChar:SetAttribute("InCinematicMode", true)
+	playerChar.Humanoid.WalkSpeed = 0
+	
+	-- Blast the lid object straight into the sky using physical velocity
+	local lid = TrashAmbush.ContainerProp:FindFirstChild("Lid")
+	if lid then
+		lid.AssemblyLinearVelocity = Vector3.new(0, 80, -10)
+		lid.CanCollide = true
+	end
+	
+	-- Emit junk explosion particles across client screens
+	Network.PlayBreakEffect:FireAllClients(TrashAmbush.ContainerProp.PrimaryPart.Position, "TrashDebrisExplosion")
+	Network.PlayElevatorAudioLoop:FireClient(player, "TrashCanClatter")
+	Network.PlayCameraShakeGlobal:FireAllClients(4, 15)
+	
+	task.wait(0.25)
+	
+	-- 2. Spawn the Stalker variant
+	local sato = ReplicatedStorage.Enemies.SatoStalker:Clone()
+	sato.Name = "Sato (Trash King)"
+	sato.PrimaryPart.CFrame = TrashAmbush.ContainerProp.PrimaryPart.CFrame * CFrame.new(0, 2, 0)
+	sato.Parent = workspace.Enemies
+	
+	local sHum = sato:FindFirstChildOfClass("Humanoid")
+	sHum.MaxHealth = 5000
+	sHum.Health = 5000
+	sHum.WalkSpeed = 20
+	
+	-- UI Cards & Audio Hijack
+	Network.DisplayLocationCard:FireClient(player, "I SMELL YOU, INMATE!", "Daisuke Sato: Garbage Desperado")
+	Network.PlayZoneBGM:FireClient(player, "Sato_Everywhere_Funk_Theme")
+	
+	-- 3. The Unblockable Overhead Pipe Slam
+	Network.PlayEnemyAttackAnimation:FireAllClients(sato, "TrashCanOverheadSlam")
+	
+	task.wait(0.3) -- Dodge window
+	
+	-- Return mobility to player
+	playerChar:SetAttribute("InCinematicMode", false)
+	playerChar.Humanoid.WalkSpeed = 16
+	
+	-- Hit verification
+	if (sato.HumanoidRootPart.Position - pRoot.Position).Magnitude <= 9 then
+		-- If player isn't actively perfect-countering with Tiger Drop, apply a blind debuff
+		if playerChar:GetAttribute("CurrentStyle") == "Dragon" and playerChar:GetAttribute("IsPerfectGuarding") then
+			Network.PlayBlockEffect:FireAllClients(pRoot.Position, "PerfectGuardSpark")
+		else
+			playerChar.Humanoid:TakeDamage(40)
+			-- Apply a custom UI blind effect (screen covered in grime) for 4 seconds
+			playerChar:SetAttribute("IsBlindedByTrash", true)
+			Network.ApplyScreenDebuff:FireClient(player, "TrashBlind", 4)
+			
+			task.delay(4, function()
+				if playerChar then playerChar:SetAttribute("IsBlindedByTrash", false) end
+			end)
+		end
+	end
+	
+	-- Handle Defeat/Escapism
+	sHum.Died:Connect(function()
+		task.wait(1.5)
+		Network.DisplayLocationCard:FireClient(player, "AMBUSH CONQUERED", "Sato crawled back into the sewer grid.")
+		Network.PlayZoneBGM:FireClient(player, "Premium_Roaming_Funk")
+		sato:Destroy()
+		
+		-- Cooldown reset matrix
+		task.delay(240, function()
+			TrashAmbush.Active = false
+			-- Regrow/reset model structural assets if needed
+		end)
+	end)
+end
+
+InitializeTrashTrap()
