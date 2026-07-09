@@ -1,0 +1,160 @@
+-- ServerScriptService -> MainStoryDirector
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local StoryDirector = {
+	-- Canonical Campaign Milestone Registry
+	CampaignRegistry = {
+		[1] = {
+			Title = "Chapter 1: Out from the Cage",
+			Objective = "Defeat the sector gate guards at the Area 1 Slums alleyway checkpoint.",
+			TargetNPC = "SlumsGateGuard",
+			RewardPoints = 500
+		},
+		[2] = {
+			Title = "Chapter 2: The Informant's Price",
+			Objective = "Locate Master Sato hidden near the local neon vending machine grid.",
+			TargetNPC = "SatoStalker",
+			RewardPoints = 750
+		},
+		[12] = {
+			Title = "Chapter 12: Apex Corporate Power",
+			Objective = "Reach the absolute zenith of the Obsidian Spire and defeat the Patriarch.",
+			TargetNPC = "SyndicatePatriarch",
+			RewardPoints = 5000
+		}
+	}
+}
+
+-- Initialize a player's narrative profile when they spawn into the matrix
+function StoryDirector.AssignPlayerProfile(player)
+	-- Fetch saved narrative state (defaults to Chapter 1 if new save data profile)
+	local currentChapter = player:GetAttribute("StoryChapter") or 1
+	player:SetAttribute("StoryChapter", currentChapter)
+	player:SetAttribute("ObjectiveProgress", 0) -- 0 = Active, 1 = Complete/Pending TurnIn
+	
+	StoryDirector.DeployChapterWorldAssets(player, currentChapter)
+end
+
+function StoryDirector.DeployChapterWorldAssets(player, chapterId)
+	local metaData = StoryDirector.CampaignRegistry[chapterId]
+	if not metaData then 
+		-- If they exceeded chapter 12, they have successfully cleared the story loop!
+		player:SetAttribute("StoryCleared", true)
+		Network.DisplayLocationCard:FireClient(player, "PREMIUM ADVENTURE UNLOCKED", "The city is now fully open. Go find Sato.")
+		return 
+	end
+	
+	-- Fire localized client updates to refresh their top-right screen objective banner
+	Network.UpdateObjectiveHUD:FireClient(player, metaData.Title, metaData.Objective)
+	
+	-- Clean up old instance markers if they exist
+	local activeQuestFolder = workspace:FindFirstChild("ActiveStoryNodes_" .. player.Name)
+	if activeQuestFolder then activeQuestFolder:Destroy() end
+	
+	activeQuestFolder = Instance.new("Folder")
+	activeQuestFolder.Name = "ActiveStoryNodes_" .. player.Name
+	activeQuestFolder.Parent = workspace
+	
+	-- Procedurally spawn the target interactive objective marker in the physical map
+	local interactionNode = Instance.new("Part")
+	interactionNode.Name = "QuestTrigger_" .. metaData.TargetNPC
+	interactionNode.Size = Vector3.new(6, 6, 6)
+	interactionNode.Shape = Enum.PartType.Ball
+	interactionNode.Transparency = 0.75
+	interactionNode.Color = Color3.fromRGB(0, 200, 255) -- Neon Cyber Blue
+	interactionNode.CanCollide = false
+	interactionNode.Anchored = true
+	
+	-- Locate the predefined vector coordinate destination for this chapter
+	local spawnAnchor = workspace.Environment.QuestSpawns:FindFirstChild("Chapter_" .. chapterId)
+	if spawnAnchor then
+		interactionNode.CFrame = spawnAnchor.CFrame
+	else
+		-- Fallback baseline space position matrix
+		interactionNode.CFrame = CFrame.new(0, 10, -50)
+	end
+	
+	interactionNode.Parent = activeQuestFolder
+	
+	-- Connect physical proxy collision checking framework
+	interactionNode.Touched:Connect(function(hit)
+		local char = hit.Parent
+		local targetPlayer = game.Players:GetPlayerFromCharacter(char)
+		
+		if targetPlayer == player and player:GetAttribute("ObjectiveProgress") == 0 then
+			player:SetAttribute("ObjectiveProgress", 1) -- Freeze logic to avoid repetitive spam
+			interactionNode:Destroy()
+			
+			StoryDirector.TriggerChapterCinematicBattle(player, chapterId)
+		end
+	end)
+end
+
+function StoryDirector.TriggerChapterCinematicBattle(player, chapterId)
+	local char = player.Character
+	local metaData = StoryDirector.CampaignRegistry[chapterId]
+	
+	-- 1. Lock character inputs for dramatic structural staging cutscene
+	char:SetAttribute("InCinematicMode", true)
+	char.Humanoid.WalkSpeed = 0
+	
+	Network.PlayCameraCinematicTrack:FireClient(player, "Intro_Chapter_" .. chapterId)
+	task.wait(3.5)
+	
+	-- 2. Restore local brawler combat parameters
+	char:SetAttribute("InCinematicMode", false)
+	char.Humanoid.WalkSpeed = 16
+	
+	-- Spawn the actual hostile narrative boss instance directly into the arena zone
+	local bossModel = ReplicatedStorage.Enemies:FindFirstChild(metaData.TargetNPC):Clone()
+	bossModel.PrimaryPart.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(0, 0, -25)
+	bossModel.Parent = workspace.Enemies
+	
+	local bHum = bossModel:FindFirstChildOfClass("Humanoid")
+	
+	-- Connect hook checking for boss defeat state
+	bHum.Died:Connect(function()
+		task.wait(2.0)
+		
+		-- Reward payouts
+		local currentPoints = player:GetAttribute("ColiseumPoints") or 0
+		player:SetAttribute("ColiseumPoints", currentPoints + metaData.RewardPoints)
+		
+		-- Advance to next sequential narrative step structure
+		local nextChapter = chapterId + 1
+		player:SetAttribute("StoryChapter", nextChapter)
+		player:SetAttribute("ObjectiveProgress", 0)
+		
+		-- Display classic massive stylized chapter clear splash overlay
+		Network.DisplaySubstoryClearCard:FireClient(player, metaData.Title, "CHAPTER CLEAR", 100)
+		
+		-- Load next phase layout safely
+		StoryDirector.DeployChapterWorldAssets(player, nextChapter)
+	end)
+end
+
+-- Hook global player tracking setup profiles
+game.Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(1.0) -- Let core replication settle down safely
+		StoryDirector.AssignPlayerProfile(player)
+	end)
+end)
+-- LocalScript -> ObjectiveHUDUpdater
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local ObjectiveLabel = script.Parent:WaitForChild("CurrentObjectiveText")
+local ChapterLabel = script.Parent:WaitForChild("ChapterTitleText")
+
+Network.UpdateObjectiveHUD.OnClientEvent:Connect(function(chapterTitle, objectiveDescription)
+	ChapterLabel.Text = string.upper(chapterTitle)
+	ObjectiveLabel.Text = objectiveDescription
+	
+	-- Slick typewriter punch sound effect framing
+	ObjectiveLabel.TextColor3 = Color3.fromRGB(255, 220, 0) -- Bold flash yellow tell
+	task.wait(0.15)
+	ObjectiveLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+end)
