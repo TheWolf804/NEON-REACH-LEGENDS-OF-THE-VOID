@@ -1,0 +1,153 @@
+-- LocalScript -> PrologueClientDirector
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local function RunIntroCinematic()
+	local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	char:SetAttribute("InCinematicMode", true)
+	
+	-- Establish Camera Interpolation Anchors in the Arena
+	local CamNode1 = workspace.Environment.PrologueArena:WaitForChild("CamNode1")
+	local CamNode2 = workspace.Environment.PrologueArena:WaitForChild("CamNode2")
+	
+	Camera.CameraType = Enum.CameraType.Scriptable
+	Camera.CFrame = CamNode1.CFrame
+	
+	task.wait(1.0)
+	
+	-- Smoothly pan across the screaming cyberpunk crowd rows
+	local panTween = TweenService:Create(Camera, TweenInfo.new(4.0, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {CFrame = CamNode2.CFrame})
+	panTween:Play()
+	
+	-- Dramatic localized title drop card overlay
+	Network.DisplayLocationCard:FireClient(LocalPlayer, "PROLOGUE: CAGE RUNNER", "Kamuro-Neo Underground Sector 9")
+	panTween.Completed:Wait()
+	
+	-- Snap back to player perspective
+	Camera.CameraType = Enum.CameraType.Custom
+	char:SetAttribute("InCinematicMode", false)
+	
+	-- Initiate Tutorial HUD Elements
+	Network.UpdateObjectiveHUD:FireClient(LocalPlayer, "PROLOGUE", "Press [LMB] 3 times to execute a Light Combo.")
+end
+
+-- Initialize the cold open sequence on initial replications
+task.delay(2.0, function()
+	RunIntroCinematic()
+end)
+-- ServerScriptService -> PrologueServerManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local Prologue = {
+	ActivePhase = "Tutorial",
+	DummyInstance = nil,
+	BossInstance = nil
+}
+
+function Prologue.StartTutorial(player)
+	local char = player.Character or player.CharacterAdded:Wait()
+	
+	-- Spawn a basic structural cyber-training frame dummy
+	local dummy = ReplicatedStorage.Enemies.TrainingDummy:Clone()
+	dummy.PrimaryPart.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(0, 0, -12)
+	dummy.Parent = workspace.Environment.PrologueArena
+	Prologue.DummyInstance = dummy
+	
+	local dHum = dummy:FindFirstChildOfClass("Humanoid")
+	dHum.Died:Connect(function()
+		-- Dummy crushed! Advance immediately to the boss arena gate sequence
+		Prologue.TriggerBossAmbush(player)
+	end)
+end
+
+function Prologue.TriggerBossAmbush(player)
+	Prologue.ActivePhase = "BossFight"
+	local char = player.Character
+	
+	-- Clear out the training artifacts cleanly
+	if Prologue.DummyInstance then Prologue.DummyInstance:Destroy() end
+	
+	-- Dynamic Audio Hijack: Heavy street bass riffs drop
+	Network.PlayZoneBGM:FireClient(player, "Sato_Theme_Original_Mix")
+	Network.UpdateObjectiveHUD:FireClient(player, "THE FIRST HURDLE", "Survive the match against Daisuke Sato.")
+	
+	-- Spawn Daisuke Sato (Prologue Variant)
+	local sato = ReplicatedStorage.Enemies.SatoStalker:Clone()
+	sato.Name = "Daisuke Sato (The Debt Collector)"
+	sato.PrimaryPart.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(0, 0, -20)
+	sato.Parent = workspace.Enemies
+	Prologue.BossInstance = sato
+	
+	local sHum = sato:FindFirstChildOfClass("Humanoid")
+	sHum.MaxHealth = 3000 -- Scaled down profile for the onboarding experience
+	sHum.Health = 3000
+	sHum.WalkSpeed = 15
+	
+	-- Monitor his health state to manage the dramatic narrative exit threshold
+	sHum.HealthChanged:Connect(function(currentHealth)
+		if Prologue.ActivePhase == "BossFight" and currentHealth <= 1500 then
+			Prologue.ActivePhase = "Completed"
+			Prologue.ConcludePrologue(player)
+		end
+	end)
+	
+	-- Initiate simple, heavy linear AI attack behaviors
+	task.spawn(function()
+		while Prologue.ActivePhase == "BossFight" and sHum.Health > 0 do
+			local pRoot = char:FindFirstChild("HumanoidRootPart")
+			if pRoot then
+				local distance = (sato.HumanoidRootPart.Position - pRoot.Position).Magnitude
+				if distance <= 7 then
+					-- Sato uses his unblockable heavy brass-knuckle clothesline swing
+					Network.PlayEnemyAttackAnimation:FireAllClients(sato, "SatoHeavyClothesline")
+					task.wait(0.4)
+					if (sato.HumanoidRootPart.Position - pRoot.Position).Magnitude <= 7 then
+						char.Humanoid:TakeDamage(20)
+						char:SetAttribute("StunState", "Stagger")
+					end
+				end
+			end
+			task.wait(2.0)
+		end
+	end)
+end
+
+function Prologue.ConcludePrologue(player)
+	local char = player.Character
+	char:SetAttribute("InCinematicMode", true)
+	char.Humanoid.WalkSpeed = 0
+	
+	-- Freeze Sato and clean him up elegantly
+	if Prologue.BossInstance then Prologue.BossInstance:Destroy() end
+	
+	-- Trigger explosion script behind the back cage wall to hint at your path out
+	Network.PlayBreakEffect:FireAllClients(workspace.Environment.PrologueArena.BackWall.Position, "StructuralExplosionSpark")
+	Network.PlayElevatorAudioLoop:FireClient(player, "WallBreachScreech")
+	
+	task.wait(1.5)
+	
+	-- Update their profile registry dynamically to unlock chapter 1 architecture
+	player:SetAttribute("StoryChapter", 1)
+	Network.DisplaySubstoryClearCard:FireClient(player, "PROLOGUE CLEAR", "Welcome to Kamuro-Neo.", 100)
+	
+	-- Advance to full game core routing profiles
+	char:SetAttribute("InCinematicMode", false)
+	char.Humanoid.WalkSpeed = 16
+	
+	local DirectorModule = require(game:GetService("ServerScriptService"):WaitForChild("MainStoryDirector"))
+	DirectorModule.DeployChapterWorldAssets(player, 1)
+end
+
+-- Initialize tracking on startup vectors
+game.Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(3.0) -- Allow client camera loading frame buffers to completely clear
+		Prologue.StartTutorial(player)
+	end)
+end)
