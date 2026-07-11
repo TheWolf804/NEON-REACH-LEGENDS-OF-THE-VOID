@@ -1,0 +1,143 @@
+-- ServerScriptService -> FriendshipSystemManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local FriendshipSystem = {
+	-- Points needed to clear each individual level tier
+	MaxPointsPerLevel = 100,
+	
+	-- Canonical Database of Bond-eligible NPCs
+	Registry = {
+		["PoppoClerk_Jun"] = { Name = "Jun, Convenience Store Clerk", QuestChapterReq = 2 },
+		["TaxiDriver_Ryuji"] = { Name = "Ryuji, Rebel Taxi Driver", QuestChapterReq = 4 },
+		["Chef_Lin"] = { Name = "Master Lin, Noodle Chef", QuestChapterReq = 1 }
+	}
+}
+
+function FriendshipSystem.InitializePlayerBonds(player)
+	local bondData = player:FindFirstChild("NPCAffectionData")
+	if not bondData then
+		bondData = Instance.new("Folder")
+		bondData.Name = "NPCAffectionData"
+		bondData.Parent = player
+	end
+	
+	-- Generate clean profiles for everyone in the city registry
+	for npcKey, meta in pairs(FriendshipSystem.Registry) do
+		if not bondData:FindFirstChild(npcKey) then
+			local npcFolder = Instance.new("Folder", bondData)
+			npcFolder.Name = npcKey
+			
+			local level = Instance.new("IntValue", npcFolder)
+			level.Name = "Level"
+			level.Value = 1
+			
+			local xp = Instance.new("IntValue", npcFolder)
+			xp.Name = "Experience"
+			xp.Value = 0
+			
+			local isLocked = Instance.new("BoolValue", npcFolder)
+			isLocked.Name = "QuestLocked"
+			isLocked.Value = false -- True if waiting for a friendship quest clear
+		end
+	end
+end
+
+function FriendshipSystem.AwardFriendshipPoints(player, npcKey, amount)
+	local bondData = player:FindFirstChild("NPCAffectionData")
+	if not bondData then return end
+	local npcProfile = bondData:FindFirstChild(npcKey)
+	if not npcProfile then return end
+	
+	local levelVal = npcProfile.Level
+	local xpVal = npcProfile.Experience
+	local lockVal = npcProfile.QuestLocked
+	
+	-- Absolute Cap at Level 10 (100% Max Bonded)
+	if levelVal.Value >= 10 then return end
+	if lockVal.Value == true then 
+		Network.DisplayAlertHUD:FireClient(player, "BOND BLOCKED", "Complete " .. FriendshipSystem.Registry[npcKey].Name .. "'s Friendship Quest to progress further!")
+		return 
+	end
+	
+	xpVal.Value = xpVal.Value + amount
+	
+	-- Check for Level Up Threshold
+	if xpVal.Value >= FriendshipSystem.MaxPointsPerLevel then
+		xpVal.Value = xpVal.Value - FriendshipSystem.MaxPointsPerLevel
+		levelVal.Value = levelVal.Value + 1
+		
+		-- Trigger Level Up Celebration Banner on Client Screen
+		Network.DisplayLevelUpSplash:FireClient(player, FriendshipSystem.Registry[npcKey].Name, levelVal.Value)
+		
+		-- Check Gate Boundaries: Levels 3, 6, and 9 trigger unique Friendship Quests
+		if levelVal.Value == 3 or levelVal.Value == 6 or levelVal.Value == 9 then
+			lockVal.Value = true
+			FriendshipSystem.InjectFriendshipQuest(player, npcKey, levelVal.Value)
+		end
+		
+		-- MAX TIER LEVEL 10 UNLOCKED
+		if levelVal.Value == 10 then
+			FriendshipSystem.UnlockCombatAssist(player, npcKey)
+		end
+	end
+end
+
+function FriendshipSystem.InjectFriendshipQuest(player, npcKey, targetLevel)
+	local npcName = FriendshipSystem.Registry[npcKey].Name
+	Network.ReceiveMysteriousPagerText:FireClient(player, {
+		Sender = npcName,
+		Message = "Hey, Outmate... I ran into a bit of heavy corporate trouble in the back alley. Could you swing by? I really need a hand."
+	})
+	Network.UpdateObjectiveHUD:FireClient(player, "FRIENDSHIP QUEST", "Meet with " .. npcName .. " to clear up their dilemma.")
+end
+
+function FriendshipSystem.UnlockCombatAssist(player, npcKey)
+	local npcName = FriendshipSystem.Registry[npcKey].Name
+	Network.DisplaySubstoryClearCard:FireClient(player, "100% BOND ACHIEVED", npcName .. " is now your sworn brother!", 100)
+	
+	local summonManifest = player:FindFirstChild("UnlockedAssists") or Instance.new("Folder", player)
+	summonManifest.Name = "UnlockedAssists"
+	
+	local assistToken = Instance.new("BoolValue", summonManifest)
+	assistToken.Name = npcKey
+	assistToken.Value = true
+end
+
+-- Connect Global Network Trigger
+Network.ProcessNpcInteraction.OnServerEvent:Connect(function(player, npcKey, actionType)
+	-- E.g., actionType could be "BuyNoodles", "GiveGift", "ListenToProblems"
+	if actionType == "GiveGift" then
+		FriendshipSystem.AwardFriendshipPoints(player, npcKey, 35)
+	elseif actionType == "CompleteErrand" then
+		FriendshipSystem.AwardFriendshipPoints(player, npcKey, 60)
+	end
+end)
+
+game.Players.PlayerAdded:Connect(FriendshipSystem.InitializePlayerBonds)
+-- LocalScript -> StarterPlayer.StarterCharacterScripts.AssistCombatTrigger
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = script.Parent
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	if input.KeyCode == Enum.KeyCode.R then
+		local assists = LocalPlayer:FindFirstChild("UnlockedAssists")
+		if assists and #assists:GetChildren() > 0 then
+			-- Verify player has enough localized Heat resource
+			if Character:GetAttribute("HeatMeter") >= 100 and not Character:GetAttribute("InCinematicMode") then
+				-- Grab the first available unlocked companion tool token
+				local activeCompanion = assists:GetChildren()[1].Name
+				
+				-- Fire call to action request
+				Network.ExecuteTagTeamHeatAction:FireServer(activeCompanion)
+			end
+		end
+	end
+end)
