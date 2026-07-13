@@ -1,0 +1,130 @@
+-- ServerScriptService -> AchievementEngine
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local AchievementEngine = {
+	Registry = {
+		-- Public Achievements
+		["PrologueClear"] = { Name = "Welcome to the Neon Jungle", Secret = false, Description = "Complete the Prologue and escape the cage." },
+		["AllStylesMaxed"] = { Name = "Master of the Fist", Secret = false, Description = "Max out all four primary combat stances." },
+		["AllBondsMaxed"] = { Name = "Sworn Brothers", Secret = false, Description = "Reach Level 10 Friendship with all primary city NPCs." },
+		
+		-- Secret Achievements
+		["AmonTigerDropCounter"] = { Name = "The Student Becomes the Master", Secret = true, Description = "Land a perfect Tiger Drop counter against Shin Amon's own Tiger Drop." },
+		["AllSatoAmbushes"] = { Name = "Sato Everywhere, Literally", Secret = true, Description = "Survive every single unique environmental Sato ambush." },
+		["BrokeVendingAttempt"] = { Name = "A Penny Saved...", Secret = true, Description = "Attempt to purchase a drink from a vending machine with 0 Yen in your inventory." }
+	}
+}
+
+function AchievementEngine.InitializePlayer(player)
+	local archive = player:FindFirstChild("UnlockedAchievements")
+	if not archive then
+		archive = Instance.new("Folder")
+		archive.Name = "UnlockedAchievements"
+		archive.Parent = player
+	end
+end
+
+function AchievementEngine.Unlock(player, achievementId)
+	local archive = player:FindFirstChild("UnlockedAchievements")
+	if not archive then return end
+	
+	-- Verify they haven't already unlocked it
+	if archive:FindFirstChild(achievementId) then return end
+	
+	local achievementData = AchievementEngine.Registry[achievementId]
+	if not achievementData then return end
+	
+	-- Write the persistent flag to their profile
+	local token = Instance.new("BoolValue")
+	token.Name = achievementId
+	token.Value = true
+	token.Parent = archive
+	
+	-- Fire a cinematic client announcement
+	Network.DisplayAchievementSplash:FireClient(
+		player, 
+		achievementData.Name, 
+		achievementData.Description, 
+		achievementData.Secret
+	)
+	
+	-- Grant custom cosmetics or titles based on the ID
+	AchievementEngine.DistributeRewards(player, achievementId)
+end
+
+function AchievementEngine.DistributeRewards(player, achievementId)
+	local wardrobe = player:FindFirstChild("WardrobeInventory") or Instance.new("Folder", player)
+	wardrobe.Name = "WardrobeInventory"
+	
+	if achievementId == "AmonTigerDropCounter" then
+		local cosmetic = Instance.new("BoolValue", wardrobe)
+		cosmetic.Name = "DragonAuraFX"
+	elseif achievementId == "BrokeVendingAttempt" then
+		player:SetAttribute("PlayerTitle", "Broke Outmate")
+	end
+end
+
+-- Listen to custom hooks from combat, dialogue, and shop systems
+Network.TriggerAchievementUnlock.OnServerEvent:Connect(function(player, achievementId)
+	-- Secure validation checks go here depending on the achievement type
+	AchievementEngine.Unlock(player, achievementId)
+end)
+
+game.Players.PlayerAdded:Connect(AchievementEngine.InitializePlayer)
+-- LocalScript -> AchievementToastController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local ToastFrame = script.Parent:WaitForChild("ToastFrame")
+local TitleLabel = ToastFrame:WaitForChild("AchievementTitle")
+local DescLabel = ToastFrame:WaitForChild("AchievementDesc")
+local BadgeIcon = ToastFrame:WaitForChild("BadgeIcon")
+
+Network.DisplayAchievementSplash.OnClientEvent:Connect(function(name, description, isSecret)
+	-- Customize visual layouts if the achievement was hidden/secret
+	if isSecret then
+		ToastFrame.BorderColor3 = Color3.fromRGB(255, 0, 100) -- Hot neon pink for secret achievements
+		TitleLabel.Text = "SECRET UNLOCKED: " .. string.upper(name)
+	else
+		ToastFrame.BorderColor3 = Color3.fromRGB(0, 255, 150) -- Cyber green for public milestones
+		TitleLabel.Text = "ACHIEVEMENT UNLOCKED: " .. string.upper(name)
+	end
+	
+	DescLabel.Text = description
+	
+	-- Sound Cue Playback
+	Network.PlayElevatorAudioLoop:FireServer("AchievementChime")
+	
+	-- Tween Animation: Slid down onto screen canvas
+	ToastFrame.Position = UDim2.new(0.5, -150, -0.2, 0) -- Hidden above screen boundaries
+	ToastFrame.Visible = true
+	
+	local slideIn = TweenService:Create(ToastFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0.5, -150, 0.05, 0)
+	})
+	
+	local slideOut = TweenService:Create(ToastFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = UDim2.new(0.5, -150, -0.2, 0)
+	})
+	
+	slideIn:Play()
+	task.wait(4.0) -- Hold position for player reading frames
+	slideOut:Play()
+	slideOut.Completed:Wait()
+	ToastFrame.Visible = false
+end)
+-- Snippet from the Vending Machine Module
+function TriggerVendingPurchase(player, productCost)
+	local cash = player:GetAttribute("YenBalance") or 0
+	
+	if cash == 0 then
+		-- Triggering the secret achievement flag securely on the server side
+		local AchievementEngine = require(game.ServerScriptService.AchievementEngine)
+		AchievementEngine.Unlock(player, "BrokeVendingAttempt")
+		return
+	end
+	
+	-- Process standard purchase loops...
+end
