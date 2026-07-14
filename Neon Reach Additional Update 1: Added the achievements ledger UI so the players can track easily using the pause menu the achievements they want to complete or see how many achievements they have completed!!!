@@ -1,0 +1,134 @@
+-- LocalScript -> AchievementLedgerController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local UnlockedFolder = LocalPlayer:WaitForChild("UnlockedAchievements")
+
+local MainFrame = script.Parent
+local ProgressText = MainFrame:WaitForChild("ProgressPercent")
+local ProgressBarFill = MainFrame:WaitForChild("ProgressBar"):WaitForChild("Fill")
+local GridFrame = MainFrame:WaitForChild("GridFrame")
+local TemplateCard = MainFrame:WaitForChild("TemplateCard")
+
+-- Client-side mirror of our master achievement definitions & hints
+local AchievementDetails = {
+	["PrologueClear"] = { 
+		Name = "Welcome to the Neon Jungle", 
+		Secret = false, 
+		Description = "Complete the Prologue and escape the cage.",
+		Hint = "" 
+	},
+	["AllStylesMaxed"] = { 
+		Name = "Master of the Fist", 
+		Secret = false, 
+		Description = "Max out all four primary combat stances.",
+		Hint = "" 
+	},
+	["AllBondsMaxed"] = { 
+		Name = "Sworn Brothers", 
+		Secret = false, 
+		Description = "Reach Level 10 Friendship with all primary city NPCs.",
+		Hint = "" 
+	},
+	["AmonTigerDropCounter"] = { 
+		Name = "The Student Becomes the Master", 
+		Secret = true, 
+		Description = "Land a perfect Tiger Drop counter against Shin Amon's own Tiger Drop.",
+		Hint = "Hint: Deflect the master's strongest punch with his own ultimate move." 
+	},
+	["AllSatoAmbushes"] = { 
+		Name = "Sato Everywhere, Literally", 
+		Secret = true, 
+		Description = "Survive every single unique environmental Sato ambush.",
+		Hint = "Hint: Run into trouble around town... a lot." 
+	},
+	["BrokeVendingAttempt"] = { 
+		Name = "A Penny Saved...", 
+		Secret = true, 
+		Description = "Attempt to purchase a drink from a vending machine with 0 Yen in your inventory.",
+		Hint = "Hint: Try buying a cold beverage when your pockets are completely empty." 
+	}
+}
+
+local function PopulateLedger()
+	-- Clear out older rendered listings (excluding the template clone anchor)
+	for _, child in ipairs(GridFrame:GetChildren()) do
+		if child:IsA("Frame") and child.Name ~= "TemplateCard" then
+			child:Destroy()
+		end
+	end
+	
+	local totalCount = 0
+	local unlockedCount = 0
+	
+	-- Draw every achievement card dynamically based on player data state
+	for id, details in pairs(AchievementDetails) do
+		totalCount = totalCount + 1
+		local isUnlocked = UnlockedFolder:FindFirstChild(id) ~= nil
+		
+		local card = TemplateCard:Clone()
+		card.Name = id
+		card.Visible = true
+		
+		local titleLabel = card:WaitForChild("AchievementTitle")
+		local descLabel = card:WaitForChild("AchievementDesc")
+		local statusBorder = card -- The card background is the main panel border
+		
+		if isUnlocked then
+			unlockedCount = unlockedCount + 1
+			titleLabel.Text = details.Name
+			descLabel.Text = details.Description
+			
+			if details.Secret then
+				-- Unlocked Secret: Revealed with Hot Neon Pink highlights
+				statusBorder.BackgroundColor3 = Color3.fromRGB(30, 10, 20)
+				titleLabel.TextColor3 = Color3.fromRGB(255, 0, 100)
+				descLabel.TextColor3 = Color3.fromRGB(255, 180, 210)
+			else
+				-- Unlocked Public: Classic Cyber Green highlights
+				statusBorder.BackgroundColor3 = Color3.fromRGB(10, 30, 20)
+				titleLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+				descLabel.TextColor3 = Color3.fromRGB(180, 255, 210)
+			end
+		else
+			-- Locked Achievements
+			if details.Secret then
+				-- Locked Secret: Locked and displays only the secret hint
+				statusBorder.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+				titleLabel.Text = "??? [SECRET]"
+				titleLabel.TextColor3 = Color3.fromRGB(100, 100, 110)
+				descLabel.Text = details.Hint
+				descLabel.TextColor3 = Color3.fromRGB(140, 140, 150)
+			else
+				-- Locked Public: Title visible, description greyed out
+				statusBorder.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+				titleLabel.Text = details.Name
+				titleLabel.TextColor3 = Color3.fromRGB(160, 160, 170)
+				descLabel.Text = details.Description
+				descLabel.TextColor3 = Color3.fromRGB(100, 100, 110)
+			end
+		end
+		
+		card.Parent = GridFrame
+	end
+	
+	-- Update progression header metrics
+	local percent = math.floor((unlockedCount / totalCount) * 100)
+	ProgressText.Text = "TOTAL UNLOCKS: " .. unlockedCount .. " / " .. totalCount .. " (" .. percent .. "%)"
+	ProgressBarFill.Size = UDim2.new(unlockedCount / totalCount, 0, 1, 0)
+end
+
+-- Refresh UI whenever the ledger panel is toggled visible
+MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+	if MainFrame.Visible then
+		PopulateLedger()
+	end
+end)
+
+-- Connect real-time listeners for unlocking mid-game play sessions
+UnlockedFolder.ChildAdded:Connect(function()
+	if MainFrame.Visible then
+		PopulateLedger()
+	end
+end)
