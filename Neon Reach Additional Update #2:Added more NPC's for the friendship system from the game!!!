@@ -1,0 +1,72 @@
+-- Add these entries directly into your existing FriendshipSystem.Registry table:
+
+		["CyberDoc_Aiko"] = { 
+			Name = "Dr. Aiko, Back-Alley Cyber-Doc", 
+			QuestChapterReq = 3 
+		},
+		["Graffiti_Kenji"] = { 
+			Name = "Kenji, Underpass Artist", 
+			QuestChapterReq = 5 
+		},
+		["Records_Mei"] = { 
+			Name = "Mei, Retro Records Curator", 
+			QuestChapterReq = 2 
+		}
+-- ServerScriptService -> FriendshipSystemManager (Summon Execution Block)
+
+Network.ExecuteTagTeamHeatAction.OnServerEvent:Connect(function(player, npcKey)
+	local char = player.Character
+	if not char or char:GetAttribute("InCinematicMode") then return end
+	
+	-- Consume player's heat meter
+	char:SetAttribute("HeatMeter", 0)
+	
+	-- Handle unique companion entry sequences
+	if npcKey == "CyberDoc_Aiko" then
+		-- Spawns Aiko's specialized medical beacon
+		local beacon = Instance.new("Part")
+		beacon.Name = "NanoMedicalBeacon"
+		beacon.Size = Vector3.new(1, 4, 1)
+		beacon.Color = Color3.fromRGB(0, 255, 255)
+		beacon.Material = Enum.Material.Neon
+		beacon.Anchored = true
+		beacon.CanCollide = false
+		beacon.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(0, -1, -5)
+		beacon.Parent = workspace
+		
+		-- Simple tick-based healing loop
+		task.spawn(function()
+			for i = 1, 15 do
+				if char and char:FindFirstChild("Humanoid") then
+					char.Humanoid.Health = math.min(char.Humanoid.Health + 8, char.Humanoid.MaxHealth)
+				end
+				task.wait(1.0)
+			end
+			beacon:Destroy()
+		end)
+		
+	elseif npcKey == "Graffiti_Kenji" then
+		-- Kenji runs in and sprays neon paint
+		local waveEnemies = workspace.Enemies:GetChildren()
+		for _, enemy in ipairs(waveEnemies) do
+			local eRoot = enemy:FindFirstChild("HumanoidRootPart")
+			local pRoot = char:FindFirstChild("HumanoidRootPart")
+			if eRoot and pRoot and (eRoot.Position - pRoot.Position).Magnitude <= 15 then
+				-- Blind enemy: stop their movement and trigger blind FX
+				local hum = enemy:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.WalkSpeed = 4
+					enemy:SetAttribute("BlindedState", true)
+					
+					-- Remove blind state after 5 seconds
+					task.delay(5.0, function()
+						if enemy then
+							enemy:SetAttribute("BlindedState", false)
+							hum.WalkSpeed = 12
+						end
+					end)
+				end
+			end
+		end
+	end
+end)
