@@ -1,0 +1,158 @@
+-- LocalScript -> DialogueController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local DialogueGui = script.Parent
+local MainBox = DialogueGui:WaitForChild("MainBox")
+local SpeakerName = MainBox:WaitForChild("SpeakerName")
+local DialogText = MainBox:WaitForChild("DialogText")
+local ChoicesFrame = DialogueGui:WaitForChild("ChoicesFrame")
+local ChoiceTemplate = ChoicesFrame:WaitForChild("ChoiceTemplate")
+
+local TextTweenInfo = TweenInfo.new(0.03, Enum.EasingStyle.Linear)
+
+-- Utility: Typewriter effect with typewriter sound effects
+local function Typewrite(text)
+	DialogText.Text = ""
+	for i = 1, #text do
+		DialogText.Text = string.sub(text, 1, i)
+		Network.PlayElevatorAudioLoop:FireServer("TypewriterKeyClick") -- Blip sound
+		task.wait(0.02)
+	end
+end
+
+-- Camera focus interpolation to capture Yakuza-style intense side angles
+local function PositionCameraForDialogue(npcChar)
+	Camera.CameraType = Enum.CameraType.Scriptable
+	local npcRoot = npcChar:FindFirstChild("HumanoidRootPart")
+	local playerRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	
+	if npcRoot and playerRoot then
+		-- Mid-shot centering both characters
+		local targetCFrame = CFrame.lookAt(
+			npcRoot.Position + (npcRoot.CFrame.LookVector * 5) + Vector3.new(0, 1.5, 3),
+			npcRoot.Position + Vector3.new(0, 0.5, 0)
+		)
+		TweenService:Create(Camera, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = targetCFrame}):Play()
+	end
+end
+
+local function EndDialogue()
+	MainBox.Visible = false
+	ChoicesFrame.Visible = false
+	Camera.CameraType = Enum.CameraType.Custom
+	LocalPlayer.Character:SetAttribute("InCinematicMode", false)
+end
+
+-- Listens to the server triggering the quest sequence
+Network.StartCinematicDialogue.OnClientEvent:Connect(function(npcCharacter, npcName)
+	LocalPlayer.Character:SetAttribute("InCinematicMode", true)
+	PositionCameraForDialogue(npcCharacter)
+	
+	-- Open layout frames
+	MainBox.Visible = true
+	SpeakerName.Text = string.upper(npcName)
+	
+	-- Line 1
+	Typewrite("Look at that billboard... it's begging for some neon soul. But corporate security cameras are sweeping the entire underpass, Outmate.")
+	task.wait(1.5)
+	
+	-- Line 2 (Prompt leading to choice)
+	Typewrite("If those corporate drones catch us, they'll lock us both away for good. You ready to play bodyguard while I paint?")
+	task.wait(0.5)
+	
+	-- Present Branching Dialogue Choices
+	ChoicesFrame.Visible = true
+	
+	-- Option A
+	local optA = ChoiceTemplate:Clone()
+	optA.Text = "Don't sweat it. I've got your back."
+	optA.Visible = true
+	optA.Parent = ChoicesFrame
+	
+	-- Option B
+	local optB = ChoiceTemplate:Clone()
+	optB.Text = "Just spray fast. I don't plan on getting caught."
+	optB.Visible = true
+	optB.Parent = ChoicesFrame
+	
+	-- Handle selection connections
+	optA.MouseButton1Click:Connect(function()
+		ChoicesFrame.Visible = false
+		optA:Destroy()
+		optB:Destroy()
+		
+		Typewrite("Yeah... with you here, those security guards don't stand a chance. Let's make history!")
+		task.wait(2.0)
+		
+		-- Submit choice back to the server to award FP and start the specialized encounter
+		Network.SubmitDialogueChoice:FireServer("Graffiti_Kenji", "A")
+		EndDialogue()
+	end)
+	
+	optB.MouseButton1Click:Connect(function()
+		ChoicesFrame.Visible = false
+		optA:Destroy()
+		optB:Destroy()
+		
+		Typewrite("R-Right! Fast and loud, just like my art. Keep your eyes open, man!")
+		task.wait(2.0)
+		
+		Network.SubmitDialogueChoice:FireServer("Graffiti_Kenji", "B")
+		EndDialogue()
+	end)
+end)
+-- ServerScriptService -> KenjiQuestDirector
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local FriendshipSystem = require(game:GetService("ServerScriptService"):WaitForChild("FriendshipSystemManager"))
+
+Network.SubmitDialogueChoice.OnServerEvent:Connect(function(player, npcKey, choiceSelected)
+	if npcKey ~= "Graffiti_Kenji" then return end
+	
+	local char = player.Character
+	if not char then return end
+	
+	local fpBonus = 0
+	local encounterType = "Standard"
+	
+	if choiceSelected == "A" then
+		fpBonus = 20
+		encounterType = "Defensive" -- Guards prioritize Kenji; you have to tank/shield him
+	elseif choiceSelected == "B" then
+		fpBonus = 10
+		encounterType = "Aggressive" -- High-speed, high-damage guards rush you instantly
+	end
+	
+	-- Update Friendship levels
+	FriendshipSystem.AwardFriendshipPoints(player, "Graffiti_Kenji", fpBonus)
+	
+	-- Trigger the fight wave sequence
+	task.spawn(function()
+		task.wait(1.0)
+		Network.UpdateObjectiveHUD:FireClient(player, "THE MASTERPIECE", "Protect Kenji until the graffiti is complete!")
+		
+		-- Spawn corporate clean-up guards based on the chosen archetype
+		for i = 1, 4 do
+			local guard = ReplicatedStorage.Enemies.CorporateEnforcer:Clone()
+			guard.PrimaryPart.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(math.random(-15, 15), 0, -25)
+			
+			if encounterType == "Defensive" then
+				-- Override AI target to attack Kenji's painting frame instead of player
+				guard:SetAttribute("TargetOverride", workspace.Environment.QuestSpawns.KenjiPaintingPlate)
+				guard.Humanoid.MaxHealth = 1500
+			else
+				-- Standard hyper-aggressive player focus
+				guard.Humanoid.WalkSpeed = 22
+				guard.Humanoid.MaxHealth = 1000
+			end
+			
+			guard.Parent = workspace.Enemies
+		end
+	end)
+end)
