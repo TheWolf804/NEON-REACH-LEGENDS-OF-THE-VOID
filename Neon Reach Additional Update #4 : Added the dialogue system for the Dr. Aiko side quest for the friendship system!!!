@@ -1,0 +1,209 @@
+-- LocalScript -> AikoDialogueController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local DialogueGui = script.Parent
+local MainBox = DialogueGui:WaitForChild("MainBox")
+local SpeakerName = MainBox:WaitForChild("SpeakerName")
+local DialogText = MainBox:WaitForChild("DialogText")
+local ChoicesFrame = DialogueGui:WaitForChild("ChoicesFrame")
+local ChoiceTemplate = ChoicesFrame:WaitForChild("ChoiceTemplate")
+
+-- Dynamic Action Timer Bar
+local TimerBar = DialogueGui:WaitForChild("TimerBar")
+local TimerFill = TimerBar:WaitForChild("Fill")
+
+local function Typewrite(text)
+	DialogText.Text = ""
+	for i = 1, #text do
+		DialogText.Text = string.sub(text, 1, i)
+		Network.PlayElevatorAudioLoop:FireServer("TypewriterKeyClick")
+		task.wait(0.015) -- Slightly faster for medical high-alert scene
+	end
+end
+
+local function PositionCameraOperatingRoom(npcChar)
+	Camera.CameraType = Enum.CameraType.Scriptable
+	local npcRoot = npcChar:FindFirstChild("HumanoidRootPart")
+	if npcRoot then
+		-- Dramatic high-angle shot looking down at the operating table and Aiko
+		local targetCFrame = CFrame.lookAt(
+			npcRoot.Position + Vector3.new(0, 6, 6),
+			npcRoot.Position + Vector3.new(0, -1, -1)
+		)
+		TweenService:Create(Camera, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = targetCFrame}):Play()
+	end
+end
+
+Network.StartAikoQuestDialogue.OnClientEvent:Connect(function(aikoCharacter)
+	LocalPlayer.Character:SetAttribute("InCinematicMode", true)
+	PositionCameraOperatingRoom(aikoCharacter)
+	
+	MainBox.Visible = true
+	SpeakerName.Text = "DR. AIKO, SURGICAL CYBER-DOC"
+	
+	Typewrite("Outmate! Thank god you're here. The scavengers cut our backup generator lines. I'm running on emergency battery, and this soldier's cyber-heart is flatlining!")
+	task.wait(1.5)
+	
+	Typewrite("Look at these monitor readouts! The primary plasma valve is completely ruptured. If I try to seal it, the backpressure might blow his neural bio-core completely!")
+	task.wait(1.0)
+	
+	Typewrite("Quick! Read the pressure gauges! What's our play here?!")
+	task.wait(0.2)
+	
+	-- Open Choices and start the Ticking Panic Timer
+	ChoicesFrame.Visible = true
+	TimerBar.Visible = true
+	TimerFill.Size = UDim2.new(1, 0, 1, 0)
+	
+	-- Start visual countdown (5 seconds to act)
+	local timerTween = TweenService:Create(TimerFill, TweenInfo.new(5.0, Enum.EasingStyle.Linear), {
+		Size = UDim2.new(0, 0, 1, 0)
+	})
+	timerTween:Play()
+	
+	local optionPicked = false
+	
+	local optA = ChoiceTemplate:Clone()
+	optA.Text = "[TECHNICAL] Apply a plasma bypass first!"
+	optA.Visible = true
+	optA.Parent = ChoicesFrame
+	
+	local optB = ChoiceTemplate:Clone()
+	optB.Text = "[BRUTE FORCE] Just seal the valve directly!"
+	optB.Visible = true
+	optB.Parent = ChoicesFrame
+	
+	local function CleanUpChoices()
+		optionPicked = true
+		timerTween:Cancel()
+		TimerBar.Visible = false
+		ChoicesFrame.Visible = false
+		optA:Destroy()
+		optB:Destroy()
+	end
+	
+	optA.MouseButton1Click:Connect(function()
+		if optionPicked then return end
+		CleanUpChoices()
+		
+		Typewrite("Yes! The bypass is taking the pressure spike. Vitals are stabilizing... perfect call. Now get to the doors—the scavs are breaking in!")
+		task.wait(2.0)
+		
+		Network.SubmitDialogueChoice:FireServer("CyberDoc_Aiko", "A")
+		MainBox.Visible = false
+		Camera.CameraType = Enum.CameraType.Custom
+		LocalPlayer.Character:SetAttribute("InCinematicMode", false)
+	end)
+	
+	optB.MouseButton1Click:Connect(function()
+		if optionPicked then return end
+		CleanUpChoices()
+		
+		Typewrite("Ugh! It sealed, but the sudden feedback surge fried his neural dampener! He's discharging electrical pulses into the OR floors! Watch where you step!")
+		task.wait(2.5)
+		
+		Network.SubmitDialogueChoice:FireServer("CyberDoc_Aiko", "B")
+		MainBox.Visible = false
+		Camera.CameraType = Enum.CameraType.Custom
+		LocalPlayer.Character:SetAttribute("InCinematicMode", false)
+	end)
+	
+	-- Timer Exceeded Fallback
+	task.delay(5.0, function()
+		if not optionPicked then
+			CleanUpChoices()
+			Typewrite("Too slow! The valve blew! I have to manual-clamp it with my bare hands! Hold off those scavengers while I try to stop the bleeding!")
+			task.wait(2.5)
+			
+			Network.SubmitDialogueChoice:FireServer("CyberDoc_Aiko", "TIMEOUT")
+			MainBox.Visible = false
+			Camera.CameraType = Enum.CameraType.Custom
+			LocalPlayer.Character:SetAttribute("InCinematicMode", false)
+		end
+	end)
+-- ServerScriptService -> AikoQuestDirector
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local FriendshipSystem = require(game:GetService("ServerScriptService"):WaitForChild("FriendshipSystemManager"))
+
+Network.SubmitDialogueChoice.OnServerEvent:Connect(function(player, npcKey, choiceSelected)
+	if npcKey ~= "CyberDoc_Aiko" then return end
+	
+	local char = player.Character
+	if not char then return end
+	
+	local fpBonus = 0
+	local patientState = "Stable"
+	
+	if choiceSelected == "A" then
+		fpBonus = 25
+		patientState = "Stable"
+		-- Reward player with temporary armor/regen from a clinical stim shot
+		char:SetAttribute("DamageResistanceMultiplier", 0.7) -- 30% Damage Reduction
+		
+	elseif choiceSelected == "B" then
+		fpBonus = 10
+		patientState = "Surge"
+		
+		-- Spawn hazard zones in the clinic
+		task.spawn(function()
+			for i = 1, 10 do
+				local hazard = Instance.new("Part")
+				hazard.Name = "ElectricalSurge"
+				hazard.Shape = Enum.PartType.Ball
+				hazard.Size = Vector3.new(12, 12, 12)
+				hazard.Color = Color3.fromRGB(0, 180, 255)
+				hazard.Material = Enum.Material.Neon
+				hazard.CanCollide = false
+				hazard.Anchored = true
+				hazard.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(math.random(-20, 20), -2, math.random(-20, 20))
+				hazard.Parent = workspace
+				
+				-- Damage detection touch connections
+				hazard.Touched:Connect(function(hit)
+					local hitChar = hit.Parent
+					if hitChar and hitChar:FindFirstChild("Humanoid") then
+						hitChar.Humanoid:TakeDamage(15)
+					end
+				end)
+				
+				task.delay(4.0, function() hazard:Destroy() end)
+				task.wait(2.0)
+			end
+		end)
+		
+	elseif choiceSelected == "TIMEOUT" then
+		fpBonus = 0
+		patientState = "Critical"
+		
+		-- Start a VIP Protection mission where Aiko takes continuous damage
+		player:SetAttribute("ClinicDefenseHP", 100)
+		task.spawn(function()
+			while player:GetAttribute("ClinicDefenseHP") > 0 and workspace.Enemies:FindFirstChildOfClass("Model") do
+				player:SetAttribute("ClinicDefenseHP", player:GetAttribute("ClinicDefenseHP") - 2)
+				Network.UpdateObjectiveHUD:FireClient(player, "CODE BLUE", "DEFEND AIKO! Clinic Vitals: " .. player:GetAttribute("ClinicDefenseHP") .. "%")
+				task.wait(1.5)
+			end
+		end)
+	end
+	
+	-- Update database and begin the raid encounter
+	FriendshipSystem.AwardFriendshipPoints(player, "CyberDoc_Aiko", fpBonus)
+	
+	-- Spawn scavenger wave entering through clinic window panes
+	task.delay(1.5, function()
+		Network.UpdateObjectiveHUD:FireClient(player, "CODE BLUE", "Survive the clinic scavengers!")
+		for i = 1, 5 do
+			local scav = ReplicatedStorage.Enemies.ScavengerDrone:Clone()
+			scav.PrimaryPart.CFrame = workspace.Environment.ClinicSpawns.Windows.CFrame * CFrame.new(math.random(-5, 5), 0, 0)
+			scav.Parent = workspace.Enemies
+		end
+	end)
+end)
+end)
