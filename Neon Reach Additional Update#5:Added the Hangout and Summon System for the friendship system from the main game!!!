@@ -1,0 +1,144 @@
+-- Append to ServerScriptService -> FriendshipSystemManager
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+-- Master preference list to calculate dynamic hangout success rates
+local ActivityPreferences = {
+	["CyberDoc_Aiko"] = { Favorite = "Diner", Dislikes = "Arcade", Buff = "MedicinalRegen" },
+	["Graffiti_Kenji"] = { Favorite = "Arcade", Dislikes = "Bar", Buff = "AdrenalineSpeed" },
+	["Records_Mei"]   = { Favorite = "Bar", Dislikes = "Diner", Buff = "SubBassDefense" }
+}
+
+-- Remote Function to check if a phone call is valid
+Network.RequestHangoutCall.OnServerInvoke = function(player, npcKey)
+	local archive = player:FindFirstChild("FriendshipLevels")
+	if not archive then return false, "No friendship data." end
+	
+	local val = archive:FindFirstChild(npcKey)
+	-- Level 7+ required to unlock personal smartphone contact number
+	if not val or val.Value < 7 then 
+		return false, "Connection Unavailable. Friendship Level 7 required." 
+	end
+	
+	-- Implement a simple server attribute cooldown check
+	local lastCall = player:GetAttribute(npcKey .. "_LastHangout") or 0
+	if os.time() - lastCall < 300 then -- 5 minute real-world cooldown
+		local remaining = math.ceil(300 - (os.time() - lastCall))
+		return false, "Contact busy. Retry in " .. remaining .. " seconds."
+	end
+	
+	return true, "Line open."
+end
+
+-- Process the actual hangout event execution
+Network.ExecuteHangoutActivity.OnServerEvent:Connect(function(player, npcKey, activityType)
+	local archive = player:FindFirstChild("FriendshipLevels")
+	if not archive or not archive:FindFirstChild(npcKey) then return end
+	
+	local prefs = ActivityPreferences[npcKey]
+	if not prefs then return end
+	
+	player:SetAttribute(npcKey .. "_LastHangout", os.time())
+	
+	local score = 50 -- Base synchronization score
+	local dialogueOutcome = ""
+	
+	if activityType == prefs.Favorite then
+		score = 100
+		dialogueOutcome = "Excellent! They absolutely loved the environment and opened up completely."
+		-- Award massive bonus friendship progression points
+		archive[npcKey].Value = math.min(archive[npcKey].Value + 15, 100)
+	elseif activityType == prefs.Dislikes then
+		score = 20
+		dialogueOutcome = "Awkward... They seemed incredibly uncomfortable and out of their element here."
+		archive[npcKey].Value = math.min(archive[npcKey].Value + 2, 100)
+	else
+		dialogueOutcome = "Not bad. You spent some casual time chatting about the city over a regular evening."
+		archive[npcKey].Value = math.min(archive[npcKey].Value + 7, 100)
+	end
+	
+	-- Apply corresponding 1-hour gameplay multiplier buff
+	ApplyHangoutBuff(player, prefs.Buff)
+	
+	-- Send results back down to client UI popups
+	Network.DisplayHangoutResolution:FireClient(player, npcKey, score, dialogueOutcome)
+end)
+
+function ApplyHangoutBuff(player, buffType)
+	local char = player.Character
+	if not char then return end
+	
+	player:SetAttribute("ActiveHangoutBuff", buffType)
+	player:SetAttribute("BuffExpiration", os.time() + 3600) -- Valid for 1 hour
+	
+	-- Immediate stat injection hook
+	if buffType == "AdrenalineSpeed" and char:FindFirstChild("Humanoid") then
+		char.Humanoid.WalkSpeed = 20 -- Base speed boost from hanging with Kenji
+	elseif buffType == "MedicinalRegen" then
+		char:SetAttribute("PassiveRegenTick", 3) -- Continuous healing from Aiko's tips
+	end
+-- LocalScript -> PhoneHangoutController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local AppFrame = script.Parent
+local ContactList = AppFrame:WaitForChild("ContactList")
+local ActivityPanel = AppFrame:WaitForChild("ActivitySelectionFrame")
+local StatusLabel = AppFrame:WaitForChild("StatusLabel")
+
+-- Connect contact slot click listeners
+for _, button in ipairs(ContactList:GetChildren()) do
+	if button:IsA("TextButton") then
+		button.MouseButton1Click:Connect(function()
+			local npcKey = button:GetAttribute("NPCKey")
+			StatusLabel.Text = "Calling..."
+			
+			-- Ask server if the NPC is available and likes us enough
+			local success, message = Network.RequestHangoutCall:InvokeServer(npcKey)
+			
+			if success then
+				StatusLabel.Text = "Connected!"
+				ContactList.Visible = false
+				
+				-- Open the activity selection choice dashboard
+				ActivityPanel.Visible = true
+				ActivityPanel:SetAttribute("CurrentTargetNPC", npcKey)
+			else
+				StatusLabel.Text = message
+				task.wait(2)
+				StatusLabel.Text = "Select a Contact"
+			end
+		end)
+	end
+end
+
+-- Connect Activity Selection Buttons
+for _, actButton in ipairs(ActivityPanel:GetChildren()) do
+	if actButton:IsA("TextButton") then
+		actButton.MouseButton1Click:Connect(function()
+			local npcKey = ActivityPanel:GetAttribute("CurrentTargetNPC")
+			local chosenActivity = actButton.Name -- "Arcade", "Diner", or "Bar"
+			
+			ActivityPanel.Visible = false
+			AppFrame.Visible = false -- Close phone for cinematic transition
+			
+			-- Fire execution down to server structure
+			Network.ExecuteHangoutActivity:FireServer(npcKey, chosenActivity)
+		end)
+	end
+end
+
+-- Listen to final completion feedback splash
+Network.DisplayHangoutResolution.OnClientEvent:Connect(function(npcKey, syncScore, narrativeText)
+	-- Trigger full-screen stylized banner splash card showing results
+	local splash = script.Parent.Parent.Parent:WaitForChild("HangoutSplashFrame")
+	splash.ScoreLabel.Text = "SYNC RATING: " .. syncScore .. "%"
+	splash.NarrativeText.Text = narrativeText
+	splash.Visible = true
+	
+	task.wait(4.0)
+	splash.Visible = false
+end)
+end
