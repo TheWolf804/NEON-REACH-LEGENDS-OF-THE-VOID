@@ -1,0 +1,159 @@
+-- LocalScript -> ContactsAppController
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local UnlockedBonds = LocalPlayer:WaitForChild("FriendshipLevels")
+
+local AppFrame = script.Parent
+local ContactList = AppFrame:WaitForChild("ContactList")
+local TemplateCard = ContactList:WaitForChild("TemplateCard")
+local ActivityPanel = AppFrame:WaitForChild("ActivitySelectionFrame")
+
+-- Master contact display metadata
+local NPCMetadata = {
+	["CyberDoc_Aiko"] = {
+		Name = "Dr. Aiko",
+		Title = "Back-Alley Cyber-Doc",
+		Avatar = "rbxassetid://12345678", -- Replace with asset ID
+		Location = "Clinic District"
+	},
+	["Graffiti_Kenji"] = {
+		Name = "Kenji",
+		Title = "Underpass Street Artist",
+		Avatar = "rbxassetid://12345679",
+		Location = "Subway Underpass"
+	},
+	["Records_Mei"] = {
+		Name = "Mei",
+		Title = "Retro Records Owner",
+		Avatar = "rbxassetid://12345680",
+		Location = "Neon Alley"
+	}
+}
+
+-- Utility: Convert numeric level (1-10) to visual star bar
+local function FormatStarRating(level)
+	local stars = ""
+	for i = 1, 10 do
+		if i <= level then
+			stars = stars .. "★"
+		else
+			stars = stars .. "☆"
+		end
+	end
+	return stars
+end
+
+local function RefreshContactList()
+	-- Clear old rendered listings (keep template)
+	for _, child in ipairs(ContactList:GetChildren()) do
+		if child:IsA("Frame") and child.Name ~= "TemplateCard" then
+			child:Destroy()
+		end
+	end
+
+	-- Render each registered contact
+	for npcKey, meta in pairs(NPCMetadata) do
+		local bondValueObj = UnlockedBonds:FindFirstChild(npcKey)
+		local currentLvl = bondValueObj and bondValueObj.Value or 0
+
+		local card = TemplateCard:Clone()
+		card.Name = npcKey
+		card.Visible = true
+
+		local avatar = card:WaitForChild("AvatarFrame")
+		local nameLabel = card:WaitForChild("NameLabel")
+		local titleLabel = card:WaitForChild("TitleLabel")
+		local starLabel = card:WaitForChild("FriendshipStars")
+		local callBtn = card:WaitForChild("CallButton")
+
+		-- Populate Card Elements
+		avatar.Image = meta.Avatar
+		nameLabel.Text = string.upper(meta.Name)
+		titleLabel.Text = meta.Title .. " • " .. meta.Location
+		starLabel.Text = FormatStarRating(currentLvl)
+
+		-- Button Lock State Logic
+		if currentLvl >= 7 then
+			-- Level 7+ Unlocked State
+			callBtn.Text = "CALL HANGOUT"
+			callBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 150)
+			callBtn.AutoButtonColor = true
+
+			callBtn.MouseButton1Click:Connect(function()
+				-- Verify line availability on server before opening venue menu
+				local lineOpen, reason = Network.RequestHangoutCall:InvokeServer(npcKey)
+				if lineOpen then
+					OpenVenueSelector(npcKey)
+				else
+					callBtn.Text = string.upper(reason)
+					task.wait(2.0)
+					callBtn.Text = "CALL HANGOUT"
+				end
+			end)
+		else
+			-- Locked State (Under Level 7)
+			callBtn.Text = "LVL 7 REQ (CURRENT: " .. currentLvl .. ")"
+			callBtn.BackgroundColor3 = Color3.fromRGB(45, 50, 60)
+			callBtn.TextColor3 = Color3.fromRGB(120, 125, 140)
+			callBtn.AutoButtonColor = false
+		end
+
+		card.Parent = ContactList
+	end
+end
+
+function OpenVenueSelector(npcKey)
+	ActivityPanel:SetAttribute("SelectedNPC", npcKey)
+
+	-- Smooth slide-up animation for the venue menu
+	ActivityPanel.Position = UDim2.new(0, 0, 1, 0)
+	ActivityPanel.Visible = true
+
+	TweenService:Create(ActivityPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0, 0, 0.4, 0)
+	}):Play()
+end
+
+function CloseVenueSelector()
+	local slideOut = TweenService:Create(ActivityPanel, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = UDim2.new(0, 0, 1, 0)
+	})
+	slideOut:Play()
+	slideOut.Completed:Wait()
+	ActivityPanel.Visible = false
+end
+
+-- Connect Venue Options
+for _, btn in ipairs(ActivityPanel:GetChildren()) do
+	if btn:IsA("TextButton") then
+		btn.MouseButton1Click:Connect(function()
+			if btn.Name == "CancelBtn" then
+				CloseVenueSelector()
+				return
+			end
+
+			local npcKey = ActivityPanel:GetAttribute("SelectedNPC")
+			local activityType = btn.Name -- "Arcade", "Diner", or "Bar"
+
+			CloseVenueSelector()
+			AppFrame.Parent.Visible = false -- Close Phone UI during cinematic transition
+
+			-- Execute hangout logic on server
+			Network.ExecuteHangoutActivity:FireServer(npcKey, activityType)
+		end)
+	end
+end
+
+-- Refresh UI whenever phone menu opens or bond values change mid-game
+AppFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+	if AppFrame.Visible then
+		RefreshContactList()
+	end
+end)
+
+
+UnlockedBonds.ChildAdded:Connect(RefreshContactList)
