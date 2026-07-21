@@ -1,0 +1,166 @@
+-- LocalScript -> BuddyHeatClient
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContextActionService = game:GetService("ContextActionService")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+local PROXIMITY_RADIUS = 18 -- Max distance to companion to trigger
+local CurrentNearbyFriend = nil
+local CurrentTargetEnemy = nil
+
+-- Screen HUD Prompt UI
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local CombatGui = PlayerGui:WaitForChild("CombatGui")
+local HeatPrompt = CombatGui:WaitForChild("BuddyHeatPrompt") -- Frame with keybind text
+
+-- Check for nearby friendly NPCs and valid enemies
+local function ScanForBuddyHeatOpportunity()
+	local char = LocalPlayer.Character
+	if not char or char:GetAttribute("InCinematicMode") then return end
+	
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	
+	-- Look for allies in workspace
+	local nearbyFriend = nil
+	local nearbyEnemy = nil
+	
+	for _, npc in ipairs(workspace.FreeRoamCompanions:GetChildren()) do
+		local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+		if npcRoot and (npcRoot.Position - root.Position).Magnitude <= PROXIMITY_RADIUS then
+			nearbyFriend = npc
+			break
+		end
+	end
+	
+	if nearbyFriend then
+		-- Search for a staggered/knocked-down enemy near either the player or companion
+		for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
+			local eRoot = enemy:FindFirstChild("HumanoidRootPart")
+			if eRoot and (eRoot.Position - root.Position).Magnitude <= 12 then
+				if enemy:GetAttribute("IsStaggered") or enemy:GetAttribute("IsKnockedDown") then
+					nearbyEnemy = enemy
+					break
+				end
+			end
+		end
+	end
+	
+	if nearbyFriend and nearbyEnemy then
+		CurrentNearbyFriend = nearbyFriend
+		CurrentTargetEnemy = nearbyEnemy
+		HeatPrompt.Visible = true
+		HeatPrompt.TextLabel.Text = "[G] BUDDY HEAT ACTION: " .. string.upper(nearbyFriend.Name)
+	else
+		CurrentNearbyFriend = nil
+		CurrentTargetEnemy = nil
+		HeatPrompt.Visible = false
+	end
+end
+
+-- Keybind handler for [G]
+local function OnHeatInput(actionName, inputState, inputObject)
+	if inputState == Enum.UserInputState.Begin and CurrentNearbyFriend and CurrentTargetEnemy then
+		local friendKey = CurrentNearbyFriend:GetAttribute("NPCKey")
+		
+		-- Fire to server for execution and damage validation
+		Network.TriggerBuddyHeatAction:FireServer(friendKey, CurrentTargetEnemy)
+		HeatPrompt.Visible = false
+	end
+end
+
+ContextActionService:BindAction("BuddyHeatTrigger", OnHeatInput, false, Enum.KeyCode.G)
+
+-- Continuous heartbeat scan during planet free-roam
+task.spawn(function()
+	while task.wait(0.15) do
+		ScanForBuddyHeatOpportunity()
+	end
+end)
+
+-- Cinematic Camera Interpolation Event
+Network.PlayBuddyHeatCinematic.OnClientEvent:Connect(function(friendChar, enemyChar, actionName)
+	LocalPlayer.Character:SetAttribute("InCinematicMode", true)
+	
+	local fRoot = friendChar:FindFirstChild("HumanoidRootPart")
+	local eRoot = enemyChar:FindFirstChild("HumanoidRootPart")
+	
+	if fRoot and eRoot then
+		Camera.CameraType = Enum.CameraType.Scriptable
+		
+		-- Low-angle dynamic panning camera position focused on the strike center
+		local centerPos = (fRoot.Position + eRoot.Position) / 2
+		local camStartCF = CFrame.lookAt(centerPos + Vector3.new(6, 2, 8), centerPos)
+		local camEndCF = CFrame.lookAt(centerPos + Vector3.new(-4, 1.5, -6), centerPos)
+		
+		Camera.CFrame = camStartCF
+		
+		local tween = TweenService:Create(Camera, TweenInfo.new(2.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+			CFrame = camEndCF
+		})
+		tween:Play()
+		
+		tween.Completed:Wait()
+		Camera.CameraType = Enum.CameraType.Custom
+		LocalPlayer.Character:SetAttribute("InCinematicMode", false)
+	end
+-- ServerScriptService -> BuddyHeatServerManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+
+Network.TriggerBuddyHeatAction.OnServerEvent:Connect(function(player, friendKey, targetEnemy)
+	local char = player.Character
+	if not char or not targetEnemy or not targetEnemy:FindFirstChild("Humanoid") then return end
+	
+	-- Verify Friendship Level Requirements (Level 5+ required for street assists)
+	local bondVal = player:FindFirstChild("FriendshipLevels") and player.FriendshipLevels:FindFirstChild(friendKey)
+	if not bondVal or bondVal.Value < 5 then return end
+	
+	local friendChar = workspace.FreeRoamCompanions:FindFirstChild(friendKey)
+	if not friendChar then return end
+	
+	-- Broadcast cinematic camera mode to client
+	Network.PlayBuddyHeatCinematic:FireClient(player, friendChar, friendKey)
+	
+	-- Temporarily anchor targets during cinematic sequence
+	local eRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
+	local pRoot = char:FindFirstChild("HumanoidRootPart")
+	local fRoot = friendChar:FindFirstChild("HumanoidRootPart")
+	
+	if eRoot and pRoot and fRoot then
+		eRoot.Anchored = true
+		pRoot.Anchored = true
+		fRoot.Anchored = true
+		
+		-- Align positions for the joint beatdown
+		fRoot.CFrame = eRoot.CFrame * CFrame.new(-3, 0, -2)
+		pRoot.CFrame = eRoot.CFrame * CFrame.new(0, 0, 4)
+		
+		-- Play synchronized character animations (placeholders for custom track IDs)
+		local eHum = targetEnemy.Humanoid
+		
+		task.wait(1.8) -- Wait for strike impact moment inside animation timeline
+		
+		-- Deal massive Heat Action damage
+		eHum:TakeDamage(120)
+		
+		-- Spawn high-tech impact FX and sound
+		local fx = Instance.new("Explosion")
+		fx.Position = eRoot.Position
+		fx.BlastRadius = 0 -- Visual only, no blast force
+		fx.Parent = workspace
+		
+		-- Release characters back to real-time combat
+		eRoot.Anchored = false
+		pRoot.Anchored = false
+		fRoot.Anchored = false
+		
+		-- Knock down the target enemy
+		targetEnemy:SetAttribute("IsKnockedDown", true)
+	end
+end)
+end)
