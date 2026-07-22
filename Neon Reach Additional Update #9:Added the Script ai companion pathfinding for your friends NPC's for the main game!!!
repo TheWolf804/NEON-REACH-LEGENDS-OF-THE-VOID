@@ -1,0 +1,185 @@
+-- ServerScriptService -> CompanionAIController
+local PathfindingService = game:GetService("PathfindingService")
+local Players = game:GetService("Players")
+
+local FOLLOW_DISTANCE = 7      -- Distance to keep from player
+local SPRINT_DISTANCE = 22     -- Distance before companion starts running fast
+local TELEPORT_DISTANCE = 85   -- Distance before companion teleports to catch up
+
+-- Pathfinding Agent parameters tailored for humanoid companions
+local AgentParams = {
+	AgentRadius = 2.5,
+	AgentHeight = 5.0,
+	AgentCanJump = true,
+	AgentCanClimb = false,
+	WaypointSpacing = 4
+}
+
+-- Active companion threads tracking map
+local ActiveCompanions = {}
+
+local function CreateCompanionPath(companionModel, targetPlayer)
+	local hum = companionModel:FindFirstChildOfClass("Humanoid")
+	local cRoot = companionModel:FindFirstChild("HumanoidRootPart")
+	
+	if not hum or not cRoot then return end
+	
+	-- Configure network ownership to server for responsive physics
+	cRoot:SetNetworkOwner(nil)
+	
+	task.spawn(function()
+		while companionModel and companionModel.Parent and targetPlayer and targetPlayer.Character do
+			local pChar = targetPlayer.Character
+			local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+			
+			if pRoot and pChar:FindFirstChildOfClass("Humanoid").Health > 0 then
+				local distance = (cRoot.Position - pRoot.Position).Magnitude
+				
+				-----------------------------------------------------------------
+				-- STATE 1: TELEPORT (If player fell off a cliff or used fast travel)
+				-----------------------------------------------------------------
+				if distance >= TELEPORT_DISTANCE then
+					cRoot.CFrame = pRoot.CFrame * CFrame.new(math.random(-4, 4), 0, math.random(3, 6))
+					task.wait(0.5)
+					
+				-----------------------------------------------------------------
+				-- STATE 2: SPRINT TO CATCH UP
+				-----------------------------------------------------------------
+				elseif distance >= SPRINT_DISTANCE then
+					hum.WalkSpeed = 24
+					hum:MoveTo(pRoot.Position - (pRoot.CFrame.LookVector * 4))
+					task.wait(0.2)
+					
+				-----------------------------------------------------------------
+				-- STATE 3: STANDARD PATHFINDING (Navigating complex corners/streets)
+				-----------------------------------------------------------------
+				elseif distance > FOLLOW_DISTANCE then
+					hum.WalkSpeed = 16
+					
+					local path = PathfindingService:CreatePath(AgentParams)
+					local success, _ = pcall(function()
+						path:ComputeAsync(cRoot.Position, pRoot.Position)
+					end)
+					
+					if success and path.Status == Enum.PathStatus.Success then
+						local waypoints = path:GetWaypoints()
+						
+						-- Iterate through waypoints until close or path updates
+						for i, waypoint in ipairs(waypoints) do
+							-- Skip first waypoint (current position)
+							if i > 1 then
+								-- Handle jumping over street obstacles
+								if waypoint.Action == Enum.PathWaypointAction.Jump then
+									hum.Jump = true
+								end
+								
+								hum:MoveTo(waypoint.Position)
+								
+								-- Break early if player moved significantly or got close
+								local currentDist = (cRoot.Position - pRoot.Position).Magnitude
+								local stepDist = (cRoot.Position - waypoint.Position).Magnitude
+								
+								local yieldTime = math.clamp(stepDist / hum.WalkSpeed, 0.05, 0.4)
+								task.wait(yieldTime)
+								
+								if currentDist <= FOLLOW_DISTANCE or currentDist >= SPRINT_DISTANCE then
+									break
+								end
+							end
+						end
+					else
+						-- Fallback if pathfinding fails: direct move
+						hum:MoveTo(pRoot.Position)
+						task.wait(0.3)
+					end
+					
+				-----------------------------------------------------------------
+				-- STATE 4: IDLE (Close enough to player)
+				-----------------------------------------------------------------
+				else
+					hum:MoveTo(cRoot.Position) -- Stop moving
+					task.wait(0.25)
+				end
+			else
+				task.wait(1.0)
+			end
+		end
+	end)
+end
+
+-- Server helper to spawn or register a player's roaming buddy
+local function SpawnCompanionForPlayer(player, npcKey)
+	-- Remove old companion if one is already active
+	if ActiveCompanions[player] then
+		ActiveCompanions[player]:Destroy()
+		ActiveCompanions[player] = nil
+	end
+	
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	
+	-- Clone NPC template from ReplicatedStorage
+	local template = game:GetService("ReplicatedStorage"):WaitForChild("Companions"):FindFirstChild(npcKey)
+	if not template then return end
+	
+	local companion = template:Clone()
+	companion.Name = npcKey
+	companion:SetAttribute("NPCKey", npcKey)
+	companion:SetAttribute("OwnerPlayer", player.Name)
+	
+	-- Position companion behind player on spawn
+	local pRoot = char.HumanoidRootPart
+	companion:SetPrimaryPartCFrame(pRoot.CFrame * CFrame.new(3, 0, 4))
+	
+	-- Group inside FreeRoamCompanions folder for Buddy Heat Action queries
+	local container = workspace:FindFirstChild("FreeRoamCompanions") or Instance.new("Folder", workspace)
+	container.Name = "FreeRoamCompanions"
+	companion.Parent = container
+	
+	ActiveCompanions[player] = companion
+	
+	-- Start pathfinding AI loop
+	CreateCompanionPath(companion, player)
+end
+
+-- Cleanup when player leaves or resets character
+Players.PlayerRemoving:Connect(function(player)
+	if ActiveCompanions[player] then
+		ActiveCompanions[player]:Destroy()
+		ActiveCompanions[player] = nil
+	end
+end)
+
+-- Bind to phone hangout trigger or squad summon event
+game:GetService("ReplicatedStorage"):WaitForChild("NetworkEvents").SummonCompanionToWorld.OnServerEvent:Connect(function(player, npcKey)
+	SpawnCompanionForPlayer(player, npcKey)
+-- Physics Service Collision Optimization
+local PhysicsService = game:GetService("PhysicsService")
+
+-- Register unique collision groups
+PhysicsService:RegisterCollisionGroup("PlayersGroup")
+PhysicsService:RegisterCollisionGroup("CompanionsGroup")
+
+-- Disable physical collision between Players and Companions
+PhysicsService:CollisionGroupSetCollidable("PlayersGroup", "CompanionsGroup", false)
+
+-- Helper function to apply group to spawned models
+local function ApplyCollisionGroup(model, groupName)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = groupName
+		end
+	end
+end
+
+-- Listen for characters and companions spawning
+workspace.FreeRoamCompanions.ChildAdded:Connect(function(companion)
+	ApplyCollisionGroup(companion, "CompanionsGroup")
+end)
+
+game:GetService("Players").PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(char)
+		ApplyCollisionGroup(char, "PlayersGroup")
+	end)
+end)
+end)
