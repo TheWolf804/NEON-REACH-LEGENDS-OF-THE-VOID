@@ -1,0 +1,177 @@
+-- ServerScriptService -> DynamicEventServerManager
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local FriendshipSystem = require(game:GetService("ServerScriptService"):WaitForChild("FriendshipSystemManager"))
+
+local SPAWN_INTERVAL = 240 -- Check for new events every 4 minutes
+local DESPAWN_TIMER = 180  -- Event vanishes if uncompleted in 3 minutes
+
+local ActiveEvents = {}
+
+-- Preset spawn nodes placed around your planet map models
+local EventSpawnNodes = workspace:WaitForChild("Environment"):WaitForChild("DynamicEventNodes"):GetChildren()
+
+local EventTypes = {
+	{
+		NPCKey = "Graffiti_Kenji",
+		Title = "TURF AMBUSH",
+		Dialogue = "Outmate! These rival taggers jumped me! Clear 'em out!",
+		EnemiesToSpawn = 4,
+		FPReward = 30
+	},
+	{
+		NPCKey = "CyberDoc_Aiko",
+		Title = "STREET TRAUMA",
+		Dialogue = "I need a hand! Hold off these scavs while I stabilize this patient!",
+		EnemiesToSpawn = 3,
+		FPReward = 35
+	},
+	{
+		NPCKey = "Records_Mei",
+		Title = "CONTRABAND DROP",
+		Dialogue = "My shipment drone crashed nearby! Don't let corporate take it!",
+		EnemiesToSpawn = 5,
+		FPReward = 30
+	}
+}
+
+local function SpawnRandomFriendEvent()
+	if #EventSpawnNodes == 0 or #workspace.ActiveDynamicEvents:GetChildren() >= 2 then
+		return -- Cap active simultaneous world events
+	end
+
+	-- Select a random node and event archetype
+	local randomNode = EventSpawnNodes[math.random(1, #EventSpawnNodes)]
+	local eventData = EventTypes[math.random(1, #EventTypes)]
+
+	-- Clone event template
+	local eventFolder = Instance.new("Folder")
+	eventFolder.Name = "Event_" .. eventData.NPCKey
+	eventFolder:SetAttribute("NPCKey", eventData.NPCKey)
+	eventFolder:SetAttribute("Title", eventData.Title)
+	eventFolder:SetAttribute("FPReward", eventData.FPReward)
+	eventFolder:SetAttribute("IsCompleted", false)
+	eventFolder.Parent = workspace.ActiveDynamicEvents
+
+	-- Create visual HUD objective point
+	local markerPart = Instance.new("Part")
+	markerPart.Name = "EventMarker"
+	markerPart.Size = Vector3.new(4, 4, 4)
+	markerPart.CFrame = randomNode.CFrame
+	markerPart.Anchored = true
+	markerPart.CanCollide = false
+	markerPart.Transparency = 1
+	markerPart.Parent = eventFolder
+
+	-- Spawn NPC in danger
+	local npcTemplate = ReplicatedStorage.Companions:FindFirstChild(eventData.NPCKey)
+	if npcTemplate then
+		local npc = npcTemplate:Clone()
+		npc:SetPrimaryPartCFrame(randomNode.CFrame * CFrame.new(0, 3, 0))
+		npc.Parent = eventFolder
+	end
+
+	-- Notify all nearby online players with radar pings
+	for _, player in ipairs(Players:GetPlayers()) do
+		local char = player.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local dist = (char.HumanoidRootPart.Position - markerPart.Position).Magnitude
+			if dist <= 350 then -- Notify players within city sector
+				Network.PingDynamicEventHUD:FireClient(player, markerPart.Position, eventData.Title, eventData.NPCKey)
+			end
+		end
+	end
+
+	-- Setup proximity trigger when player steps into the combat zone
+	local touchedConn
+	touchedConn = markerPart.Touched:Connect(function(hit)
+		local player = Players:GetPlayerFromCharacter(hit.Parent)
+		if player and not eventFolder:GetAttribute("Triggered") then
+			eventFolder:SetAttribute("Triggered", true)
+			touchedConn:Disconnect()
+
+			-- Spawn wave of hostile street thugs
+			for i = 1, eventData.EnemiesToSpawn do
+				local enemy = ReplicatedStorage.Enemies.StreetThug:Clone()
+				enemy.PrimaryPart.CFrame = markerPart.CFrame * CFrame.new(math.random(-12, 12), 0, math.random(-12, 12))
+				enemy.Parent = eventFolder
+			end
+
+			-- Monitor event completion (All enemies eliminated)
+			task.spawn(function()
+				while eventFolder and eventFolder.Parent do
+					local remainingEnemies = 0
+					for _, child in ipairs(eventFolder:GetChildren()) do
+						if child:IsA("Model") and child:FindFirstChild("Humanoid") and child.Humanoid.Health > 0 and not child:GetAttribute("NPCKey") then
+							remainingEnemies = remainingEnemies + 1
+						end
+					end
+
+					if remainingEnemies == 0 then
+						-- Event Won!
+						eventFolder:SetAttribute("IsCompleted", true)
+						FriendshipSystem.AwardFriendshipPoints(player, eventData.NPCKey, eventData.FPReward)
+						Network.NotifyEventCompleted:FireClient(player, eventData.Title, eventData.FPReward)
+						
+						task.wait(3.0)
+						eventFolder:Destroy()
+						break
+					end
+					task.wait(1.0)
+				end
+			end)
+		end
+	end)
+
+	-- Automatic despawn timer if unaddressed
+	task.delay(DESPAWN_TIMER, function()
+		if eventFolder and eventFolder.Parent and not eventFolder:GetAttribute("Triggered") then
+			eventFolder:Destroy()
+		end
+	end)
+end
+
+-- Continuous Spawner Heartbeat Loop
+task.spawn(function()
+	while true do
+		task.wait(SPAWN_INTERVAL)
+		SpawnRandomFriendEvent()
+	end
+-- LocalScript -> DynamicEventClientHUD
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Network = ReplicatedStorage:WaitForChild("NetworkEvents")
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainGui = PlayerGui:WaitForChild("MainHUD")
+local AlertBanner = MainGui:WaitForChild("SOSAlertBanner")
+
+-- Handle incoming SOS Radar Ping
+Network.PingDynamicEventHUD.OnClientEvent:Connect(function(position, eventTitle, npcKey)
+	-- Play phone SOS chime audio
+	Network.PlayElevatorAudioLoop:FireServer("PhoneSOSChime")
+	
+	-- Display top-screen notification header
+	AlertBanner.Title.Text = "🚨 EMERGENCY NEARBY: " .. string.upper(eventTitle)
+	AlertBanner.Subtitle.Text = "Respond to " .. npcKey .. "'s location marked on your mini-map!"
+	AlertBanner.Visible = true
+	
+	-- Smooth fade out banner after 4 seconds
+	task.delay(4.0, function()
+		AlertBanner.Visible = false
+	end)
+end)
+
+-- Handle Event Completion Banner
+Network.NotifyEventCompleted.OnClientEvent:Connect(function(eventTitle, fpEarned)
+	AlertBanner.Title.Text = "✅ EVENT COMPLETED: " .. string.upper(eventTitle)
+	AlertBanner.Subtitle.Text = "Friendship Increased: +" .. fpEarned .. " FP"
+	AlertBanner.Visible = true
+	
+	task.wait(3.5)
+	AlertBanner.Visible = false
+end)
+end)
