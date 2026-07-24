@@ -1,0 +1,27 @@
+void UpdateWaypointPosition(Vector3 playerPos, Vector3 targetPos, RectTransform iconTransform, float mapRadius)
+{
+    // 1. Calculate relative 2D offset (X, Z plane)
+    Vector3 offset = targetPos - playerPos;
+    Vector2 minimapOffset = new Vector2(offset.x, offset.z) * mapScale;
+
+    // 2. Check if out of mini-map bounds
+    bool isOffscreen = minimapOffset.magnitude > mapRadius;
+
+    if (isOffscreen)
+    {
+        // Clamp to circle radius
+        minimapOffset = minimapOffset.normalized * mapRadius;
+
+        // Rotate arrow icon toward the target direction
+        float angle = Mathf.Atan2(minimapOffset.y, minimapOffset.x) * Mathf.Rad2Deg;
+        iconTransform.localRotation = Quaternion.Euler(0, 0, angle - 90f);
+    }
+    else
+    {
+        // Reset rotation if inside bounds
+        iconTransform.localRotation = Quaternion.identity;
+    }
+
+    // 3. Apply position to UI element
+    iconTransform.anchoredPosition = minimapOffset;
+}
